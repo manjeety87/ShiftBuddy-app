@@ -1,35 +1,59 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
+import { Briefcase, Calendar, Clock, Home, Settings } from 'lucide-react-native';
+import { useTheme } from '../../lib/theme-context';
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+export default function TabsLayout() {
+    // Read the live theme — the tab bar must follow theme changes like every screen.
+    const { colors } = useTheme();
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
-  return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
-    </Tabs>
-  );
+    return (
+        <Tabs
+            screenOptions={{
+                headerShown: false,
+                tabBarActiveTintColor: colors.primary,
+                tabBarInactiveTintColor: colors.textMuted,
+                tabBarStyle: {
+                    backgroundColor: colors.surface,
+                    borderTopColor: colors.surfaceLight,
+                    elevation: 0,
+                },
+            }}
+        >
+            <Tabs.Screen
+                name="index"
+                options={{
+                    title: 'Home',
+                    tabBarIcon: ({ color, size, focused }) => <Home color={color} size={size} strokeWidth={focused ? 2.4 : 1.8} />,
+                }}
+            />
+            <Tabs.Screen
+                name="shifts"
+                options={{
+                    title: 'Shifts',
+                    tabBarIcon: ({ color, size, focused }) => <Clock color={color} size={size} strokeWidth={focused ? 2.4 : 1.8} />,
+                }}
+            />
+            <Tabs.Screen
+                name="calendar"
+                options={{
+                    title: 'Calendar',
+                    tabBarIcon: ({ color, size, focused }) => <Calendar color={color} size={size} strokeWidth={focused ? 2.4 : 1.8} />,
+                }}
+            />
+            <Tabs.Screen
+                name="jobs"
+                options={{
+                    title: 'Jobs',
+                    tabBarIcon: ({ color, size, focused }) => <Briefcase color={color} size={size} strokeWidth={focused ? 2.4 : 1.8} />,
+                }}
+            />
+            <Tabs.Screen
+                name="settings"
+                options={{
+                    title: 'Settings',
+                    tabBarIcon: ({ color, size, focused }) => <Settings color={color} size={size} strokeWidth={focused ? 2.4 : 1.8} />,
+                }}
+            />
+        </Tabs>
+    );
 }
