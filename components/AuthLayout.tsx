@@ -7,6 +7,7 @@ import { withAlpha } from '../lib/color';
 import { motion } from '../lib/motion';
 import { useTheme } from '../lib/theme-context';
 import { KeyboardSafeView } from './ui/KeyboardSafeView';
+import { TextButton } from './ui/Button';
 import { ThemedText } from './ui/ThemedText';
 
 /** The shared frame of the sign-in screens: title, subtitle, then the form, centred and keyboard-safe. */
@@ -30,7 +31,16 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
  * A form's error, shown right where the user is looking (under the fields) instead
  * of in a dialog that interrupts them. Renders nothing when there's no error.
  */
-export function FormError({ message }: { message: string | null }) {
+/** An auth error, and the next step it suggests when there is one */
+export interface AuthError {
+    message: string;
+    action?: { label: string; onPress: () => void };
+}
+
+/** The machine-readable reason some errors carry (NO_ACCOUNT, WRONG_PASSWORD, …) */
+export const authErrorCode = (err: any): string | undefined => err?.response?.data?.details?.code;
+
+export function FormError({ message, action }: { message: string | null; action?: AuthError['action'] }) {
     const { colors } = useTheme();
     if (!message) return null;
     return (
@@ -40,7 +50,10 @@ export function FormError({ message }: { message: string | null }) {
             style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start', padding: 12, borderRadius: 10, backgroundColor: withAlpha(colors.danger, 0.1), marginBottom: spacing.md }}
         >
             <AlertCircle color={colors.danger} size={16} style={{ marginTop: 2 }} />
-            <ThemedText size="sm" color={colors.danger} style={{ flex: 1, lineHeight: 20 }}>{message}</ThemedText>
+            <View style={{ flex: 1 }}>
+                <ThemedText size="sm" color={colors.danger} style={{ lineHeight: 20 }}>{message}</ThemedText>
+                {action && <TextButton label={action.label} size="sm" onPress={action.onPress} style={{ alignSelf: 'flex-start', marginTop: 4 }} />}
+            </View>
         </Animated.View>
     );
 }

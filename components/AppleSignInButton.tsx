@@ -4,7 +4,9 @@ import { Platform, Text } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '../lib/auth-context';
 import { PressableScale } from './ui/PressableScale';
+import { pendingDeletionOf } from '../lib/account';
 import { showAlert } from '../lib/dialog';
+import { offerRestore } from '../lib/restorePrompt';
 
 /** Apple logo glyph (24×24). */
 function AppleLogo({ size = 17, color = '#000' }: { size?: number; color?: string }) {
@@ -27,7 +29,7 @@ function AppleLogo({ size = 17, color = '#000' }: { size?: number; color?: strin
  * and sized to sit beside the Google button.
  */
 export function AppleSignInButton() {
-    const { loginWithApple } = useAuth();
+    const { loginWithApple, restore } = useAuth();
     const [isAvailable, setIsAvailable] = useState(false);
     const [isSigningIn, setIsSigningIn] = useState(false);
 
@@ -59,6 +61,8 @@ export function AppleSignInButton() {
             await loginWithApple(credential.identityToken, fullName);
         } catch (err: any) {
             if (err.code === 'ERR_REQUEST_CANCELED') return;
+            const pending = pendingDeletionOf(err);
+            if (pending) return offerRestore(pending, restore);
             const message = err?.response?.data?.message || 'Apple sign-in failed. Please try again.';
             showAlert('Error', message);
         } finally {

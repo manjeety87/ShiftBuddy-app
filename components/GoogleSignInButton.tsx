@@ -4,7 +4,9 @@ import { useEffect } from 'react';
 import { Text } from 'react-native';
 import { useAuth } from '../lib/auth-context';
 import { PressableScale } from './ui/PressableScale';
+import { pendingDeletionOf } from '../lib/account';
 import { showAlert } from '../lib/dialog';
+import { offerRestore } from '../lib/restorePrompt';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -16,7 +18,7 @@ const discovery = {
 const GOOGLE_CLIENT_ID = '544366245378-dh17l8il2edi24ug1qt6oo7nuitkcg8n.apps.googleusercontent.com';
 
 export function GoogleSignInButton() {
-    const { loginWithGoogle } = useAuth();
+    const { loginWithGoogle, restore } = useAuth();
 
     const [request, response, promptAsync] = AuthSession.useAuthRequest(
         {
@@ -35,13 +37,15 @@ export function GoogleSignInButton() {
                 try {
                     await loginWithGoogle(response.params.id_token);
                 } catch (err: any) {
+                    const pending = pendingDeletionOf(err);
+                    if (pending) return offerRestore(pending, restore);
                     const message = err?.response?.data?.message || 'Google sign-in failed. Please try again.';
                     showAlert('Error', message);
                 }
             }
         };
         handleResponse();
-    }, [response, loginWithGoogle]);
+    }, [response, loginWithGoogle, restore]);
 
     return (
         <PressableScale

@@ -1,8 +1,8 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { AppleSignInButton } from '../../components/AppleSignInButton';
-import { AuthDivider, AuthLayout, authErrorMessage, FormError, isStrongPassword, PasswordRules } from '../../components/AuthLayout';
+import { AuthDivider, AuthLayout, authErrorCode, authErrorMessage, FormError, isStrongPassword, PasswordRules, type AuthError } from '../../components/AuthLayout';
 import { GoogleSignInButton } from '../../components/GoogleSignInButton';
 import { Button, TextButton } from '../../components/ui/Button';
 import { ThemedInput } from '../../components/ui/ThemedInput';
@@ -13,10 +13,12 @@ import { useAuth } from '../../lib/auth-context';
 export default function RegisterScreen() {
     const { register } = useAuth();
     const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
+    const params = useLocalSearchParams<{ email?: string }>();
+    // The email typed at log in comes along ("No account uses … Create an account")
+    const [email, setEmail] = useState(params.email ?? '');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<AuthError | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const emailRef = useRef<TextInput>(null);
     const passwordRef = useRef<TextInput>(null);
@@ -27,7 +29,7 @@ export default function RegisterScreen() {
     const handleRegister = async () => {
         if (!canSubmit || isSubmitting) return;
         if (password !== confirmPassword) {
-            setError('The two passwords don’t match.');
+            setError({ message: 'The two passwords don’t match.' });
             return;
         }
         setError(null);
@@ -35,7 +37,11 @@ export default function RegisterScreen() {
         try {
             await register(name.trim(), email.trim().toLowerCase(), password);
         } catch (err) {
-            setError(authErrorMessage(err));
+            if (authErrorCode(err) === 'ACCOUNT_PENDING_DELETION') {
+                setError({ message: 'This email’s account is set to be deleted — everything is still there.', action: { label: 'Log in to restore it', onPress: () => router.replace('/login') } });
+            } else {
+                setError({ message: authErrorMessage(err) });
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -100,7 +106,7 @@ export default function RegisterScreen() {
                 style={{ marginBottom: spacing.md }}
             />
 
-            <FormError message={error} />
+            <FormError message={error?.message ?? null} action={error?.action} />
 
             <Button label="Create Account" onPress={handleRegister} isLoading={isSubmitting} disabled={!canSubmit} style={{ marginBottom: spacing.lg }} />
 
