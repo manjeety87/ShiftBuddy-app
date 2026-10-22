@@ -1,11 +1,11 @@
 import { router } from 'expo-router';
-import { CalendarDays, ListChecks, type LucideIcon } from 'lucide-react-native';
+import { CalendarDays, ListChecks, Users, type LucideIcon } from 'lucide-react-native';
 import { ScrollView, Switch, View } from 'react-native';
 import { SheetHeader } from '../components/ui/SheetHeader';
 import { ThemedText } from '../components/ui/ThemedText';
 import { radius, spacing } from '../constants/themes';
 import { hideGettingStarted, showGettingStarted, useOnboarding } from '../lib/onboarding';
-import { setCalendarSummary, usePreferences } from '../lib/preferences';
+import { setCalendarSummary, setSharedSchedules, usePreferences } from '../lib/preferences';
 import { useTheme } from '../lib/theme-context';
 
 /** Choose what the screens show. Saved on this phone; each switch applies at once. */
@@ -48,6 +48,13 @@ export default function CustomizeScreen() {
                 )}
 
                 {group('CALENDAR')}
+                {toggle(
+                    Users,
+                    'Schedules shared with me',
+                    'Above the calendar: the people who share their schedule with you. Off: they stay under Sharing.',
+                    preferences?.sharedSchedules,
+                    (shown) => setSharedSchedules(shown),
+                )}
                 {toggle(
                     CalendarDays,
                     'Hours & pay card',

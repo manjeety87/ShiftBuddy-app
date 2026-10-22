@@ -104,7 +104,8 @@ export default function CalendarScreen() {
                     </View>
                 </View>
 
-                {!!incomingShares.data?.length && (
+                {/* Settings › Customize can hide it, like the web app's shared schedules on Home */}
+                {preferences?.sharedSchedules && !!incomingShares.data?.length && (
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: spacing.md }}>
                         <ThemedText variant="muted" size="xs" weight="medium">SHARED WITH YOU</ThemedText>
                         {incomingShares.data.map((share) => (
