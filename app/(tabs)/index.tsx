@@ -317,7 +317,7 @@ export default function HomeScreen() {
           {clockedIn && <ClockedInCard entry={clockedIn} />}
           {showGuide && <GettingStarted progress={progress} />}
           {nextShift ? (
-            <UpcomingShiftCard shift={nextShift} />
+            <UpcomingShiftCard shift={nextShift} isClockedIn={!!clockedIn} />
           ) : hasNoUpcomingShifts && !showGuide ? (
             <NoShiftsCard isFirstTime={isFirstTime} />
           ) : null}

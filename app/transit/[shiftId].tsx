@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Clock, House, LocateFixed, Navigation, RotateCw, X } from 'lucide-react-native';
+import { Briefcase, Clock, Footprints, House, LocateFixed, Navigation, RotateCw, X } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,7 +12,7 @@ import { ThemedText } from '../../components/ui/ThemedText';
 import { radius, spacing } from '../../constants/themes';
 import type { Shift } from '../../interfaces/shift.d';
 import { useAuth } from '../../lib/auth-context';
-import { describeArrivalBuffer, getShiftRoutes, type ShiftRoutes } from '../../lib/commute';
+import { describeArrivalBuffer, getShiftRoutes, type ShiftRoutes, type StartChoice } from '../../lib/commute';
 import { formatTime } from '../../lib/dateUtils';
 import { splitAddress } from '../../lib/geocode';
 import { leafletDocument } from '../../lib/leafletMap';
@@ -25,7 +25,8 @@ import { showAlert } from '../../lib/dialog';
 import { jobName } from '../../lib/jobLabels';
 
 type Tab = 'transit' | 'driving';
-type Origin = 'home' | 'here';
+/** Where the route starts: a place the backend knows (StartChoice), or the phone's location */
+type Origin = StartChoice | 'here';
 type Coords = { lat: number; lng: number };
 type MapSegment = { points: [number, number][]; color: string; dashed?: boolean };
 const MODE_OPTIONS: { value: Tab; label: string }[] = [
@@ -62,13 +63,14 @@ export default function TransitPlanningScreen() {
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
     const { user } = useAuth();
-    const { shiftId } = useLocalSearchParams<{ shiftId: string }>();
+    const { shiftId, from: fromParam } = useLocalSearchParams<{ shiftId: string; from?: string }>();
     const home = user?.homeLocation ?? null;
 
     const [shift, setShift] = useState<Shift | null>(null);
     const [isLoadingShift, setIsLoadingShift] = useState(true);
     const [activeTab, setActiveTab] = useState<Tab>(user?.commuteMode === 'DRIVING' ? 'driving' : 'transit');
-    const [origin, setOrigin] = useState<Origin>(home ? 'home' : 'here');
+    // The Home card passes the start it showed (the shift just before, or home); the backend's choice otherwise
+    const [origin, setOrigin] = useState<Origin>(fromParam === 'home' || fromParam === 'previousShift' ? fromParam : 'auto');
     const [routesState, setRoutesState] = useState<RoutesState>({ status: 'loading' });
     const [selectedTrip, setSelectedTrip] = useState(0);
     const [expandedTrip, setExpandedTrip] = useState<number | null>(null);
@@ -85,7 +87,7 @@ export default function TransitPlanningScreen() {
     }, [shiftId]);
 
     const hasJobLocation = shift?.job.latitude != null && shift.job.longitude != null;
-    const fromHome = origin === 'home' && !!home;
+    const isHere = origin === 'here';
 
     // The backend plans everything (arrival buffer, leave-by, transit + driving, the way home),
     // from home or from wherever the phone is right now.
@@ -98,8 +100,8 @@ export default function TransitPlanningScreen() {
             setSelectedTrip(0);
             setExpandedTrip(null);
 
-            let from: Coords | undefined;
-            if (!fromHome) {
+            let here: Coords | undefined;
+            if (isHere) {
                 const location = await getCurrentLocation();
                 if (location.status !== 'ok') {
                     if (!cancelled) {
@@ -113,13 +115,18 @@ export default function TransitPlanningScreen() {
                     }
                     return;
                 }
-                from = { lat: location.lat, lng: location.lng };
+                here = { lat: location.lat, lng: location.lng };
             }
 
             try {
-                const routes = await getShiftRoutes(shift.id, from);
+                const routes = await getShiftRoutes(shift.id, here ? { here } : { from: origin as StartChoice });
                 if (!cancelled) setRoutesState({ status: 'ready', routes });
             } catch (err: any) {
+                // No home and no shift before: plan from where the phone is
+                if (!cancelled && err?.response?.data?.details?.code === 'NO_ORIGIN') {
+                    setOrigin('here');
+                    return;
+                }
                 if (!cancelled) {
                     setRoutesState({
                         status: 'error',
@@ -132,7 +139,7 @@ export default function TransitPlanningScreen() {
         load();
 
         return () => { cancelled = true; };
-    }, [shift, hasJobLocation, fromHome, attempt, user?.arrivalBufferMinutes]);
+    }, [shift, hasJobLocation, origin, isHere, attempt, user?.arrivalBufferMinutes]);
 
     const routes = routesState.status === 'ready' ? routesState.routes : null;
     const toWork = routes?.transit.status === 'ok' ? routes.transit.toWork : [];
@@ -179,7 +186,17 @@ export default function TransitPlanningScreen() {
     }
 
     const dest = { lat: shift.job.latitude!, lng: shift.job.longitude! };
-    const startForLinks = fromHome ? routes?.origin : undefined; // "here" = maps app's own location
+    const startForLinks = isHere ? undefined : routes?.origin; // "here" = maps app's own location
+    const startKind = isHere ? 'here' : routes?.from.kind;
+    const leaveLabel = startKind === 'home' ? 'Leave home by' : startKind === 'previousShift' ? `Leave ${routes?.from.name} by` : 'Leave by';
+    // The other place the trip could start from — one link, so the row stays a row, not a second toggle
+    const switchTo: { label: string; to: Origin } | null = isHere
+        ? { label: home ? 'Use home' : 'Use my shift before', to: 'auto' }
+        : startKind === 'previousShift' && routes?.hasHome
+          ? { label: 'From home?', to: 'home' }
+          : startKind === 'home' && routes?.previousShift
+            ? { label: `From ${routes.previousShift.name}`, to: 'previousShift' }
+            : null;
     const jobLabel = jobName(shift.job);
     const bufferNote = routes ? describeArrivalBuffer(routes.arrivalBufferMinutes) : '';
 
@@ -214,8 +231,27 @@ export default function TransitPlanningScreen() {
         return null;
     };
 
+    // Within about 1 km there's no bus or drive to plan — the walk is the answer, on either tab
+    const renderWalking = () =>
+        routes?.walking ? (
+            <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.md }}>
+                <ThemedText variant="muted" size="xs" style={{ marginBottom: 4 }}>{leaveLabel.toUpperCase()}</ThemedText>
+                <ThemedText size="2xl" weight="bold" color={colors.primary} style={{ fontVariant: ['tabular-nums'] }}>{formatTime(routes.walking.leaveBy)}</ThemedText>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <Footprints color={colors.textSecondary} size={16} />
+                    <ThemedText variant="secondary" size="sm" style={{ flex: 1 }}>{routes.walking.durationMinutes} min walk — close enough that there’s no bus or drive to plan.</ThemedText>
+                </View>
+                {routes.from.endsAt && Date.parse(routes.walking.leaveBy) < Date.parse(routes.from.endsAt) && (
+                    <ThemedText size="sm" color={colors.warning} style={{ marginTop: 8 }}>
+                        {routes.from.name} ends at {formatTime(routes.from.endsAt)}, so leave as soon as it does.
+                    </ThemedText>
+                )}
+            </View>
+        ) : null;
+
     const renderTransit = () => {
         if (!routes) return renderStatus();
+        if (routes.walking) return renderWalking();
         if (routes.transit.status === 'unavailable') {
             return (
                 <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.md }}>
@@ -244,7 +280,7 @@ export default function TransitPlanningScreen() {
                         selected={selectedTrip === i}
                         expanded={expandedTrip === i}
                         onPress={() => handleTripPress(i)}
-                        leaveLabel={fromHome ? 'Leave home by' : 'Leave by'}
+                        leaveLabel={leaveLabel}
                         destinationLabel={jobLabel}
                     />
                 ))}
@@ -269,6 +305,7 @@ export default function TransitPlanningScreen() {
     };
 
     const renderDriving = () => {
+        if (routes?.walking) return renderWalking();
         if (!routes) return renderStatus();
         const { driving } = routes;
         if (!driving) {
@@ -288,7 +325,7 @@ export default function TransitPlanningScreen() {
                 </View>
                 <View style={{ height: 1, backgroundColor: colors.surfaceLight, marginVertical: spacing.sm }} />
 
-                <ThemedText variant="muted" size="xs" style={{ marginBottom: 4 }}>{fromHome ? 'LEAVE HOME BY' : 'LEAVE BY'}</ThemedText>
+                <ThemedText variant="muted" size="xs" style={{ marginBottom: 4 }}>{leaveLabel.toUpperCase()}</ThemedText>
                 <ThemedText size="lg" weight="bold" color={colors.primary}>{formatTime(driving.leaveBy)}</ThemedText>
                 <ThemedText variant="muted" size="xs" style={{ marginTop: 2 }}>
                     For your {formatTime(shift.startTime)} shift — planned to {bufferNote}
@@ -318,37 +355,30 @@ export default function TransitPlanningScreen() {
             <View style={{ paddingHorizontal: spacing.lg, marginBottom: spacing.md, gap: spacing.sm }}>
                 {/* The one real choice on this screen: how you're travelling */}
                 <SegmentedControl options={MODE_OPTIONS} value={activeTab} onChange={setActiveTab} accessibilityLabel="How to get there" />
-                {home ? (
-                    // Where the trip starts is said in words, with a way to switch — a second
-                    // toggle under the first one read as two unrelated settings
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface }}>
-                        {fromHome ? <House color={colors.textSecondary} size={18} /> : <LocateFixed color={colors.textSecondary} size={18} />}
+                {/* Where the trip starts, said in words with one link to the other place. The shift just
+                    before is the default when there is one — you're already out — and home is the what-if. */}
+                <View style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        {startKind === 'previousShift' ? <Briefcase color={colors.textSecondary} size={18} /> : startKind === 'home' ? <House color={colors.textSecondary} size={18} /> : <LocateFixed color={colors.textSecondary} size={18} />}
                         <View style={{ flex: 1 }}>
                             <ThemedText variant="muted" size="xs">FROM</ThemedText>
                             <ThemedText size="sm" weight="medium" numberOfLines={1}>
-                                {fromHome ? `Home · ${splitAddress(home.address).title}` : 'Where you are now'}
+                                {startKind === 'here'
+                                    ? 'Where you are now'
+                                    : startKind === 'previousShift' && routes
+                                      ? `${routes.from.name} · your shift before${routes.from.endsAt ? ` ends ${formatTime(routes.from.endsAt)}` : ''}`
+                                      : startKind === 'home' && home
+                                        ? `Home · ${splitAddress(home.address).title}`
+                                        : '…'}
                             </ThemedText>
                         </View>
-                        <TextButton
-                            label={fromHome ? 'Use my location' : 'Use home'}
-                            size="sm"
-                            onPress={() => setOrigin(fromHome ? 'here' : 'home')}
-                            accessibilityHint="Changes where the route starts"
-                        />
+                        {switchTo && <TextButton label={switchTo.label} size="sm" onPress={() => setOrigin(switchTo.to)} accessibilityHint="Changes where the route starts" />}
                     </View>
-                ) : (
-                    <PressableScale
-                        onPress={() => router.push('/home-address')}
-                        accessibilityRole="button"
-                        pressedScale={0.98}
-                        style={{ padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                    >
-                        <House color={colors.primary} size={18} />
-                        <ThemedText size="sm" style={{ flex: 1 }}>
-                            Planning from where you are now. <ThemedText size="sm" color={colors.primary} weight="medium">Add your home address</ThemedText> to plan from home.
-                        </ThemedText>
-                    </PressableScale>
-                )}
+                    {!isHere && <TextButton label="Or start from where you are now" size="xs" weight="medium" color={colors.textSecondary} onPress={() => setOrigin('here')} style={{ alignSelf: 'flex-start', marginTop: 6, marginLeft: 28 }} />}
+                    {isHere && !home && (
+                        <TextButton label="Add your home address" size="xs" weight="medium" onPress={() => router.push('/home-address')} style={{ alignSelf: 'flex-start', marginTop: 6, marginLeft: 28 }} />
+                    )}
+                </View>
             </View>
 
             {mapHtml && (
