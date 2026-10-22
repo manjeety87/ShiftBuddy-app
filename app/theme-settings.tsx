@@ -5,13 +5,14 @@ import { ScrollView, View } from 'react-native';
 import { Card } from '../components/ui/Card';
 import { PressableScale } from '../components/ui/PressableScale';
 import { Screen } from '../components/ui/Screen';
+import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { SheetHeader } from '../components/ui/SheetHeader';
 import { ThemedText } from '../components/ui/ThemedText';
-import { builtInThemes, radius, spacing, themeLabels, type FontScaleName, type ThemeName } from '../constants/themes';
+import { COLLECTIONS, MODES, radius, spacing, THEMES, type FontScaleName, type ThemeMode, type ThemeName } from '../constants/themes';
 import { withAlpha } from '../lib/color';
-import { buildCustomTheme, CUSTOM_THEME_LABEL } from '../lib/customTheme';
+import { CUSTOM_THEME_LABEL } from '../lib/customTheme';
 import { notify } from '../lib/notify';
-import { useTheme } from '../lib/theme-context';
+import { themeColorsFor, useTheme } from '../lib/theme-context';
 
 const FONT_OPTIONS: { name: FontScaleName; label: string; size: number }[] = [
     { name: 'small', label: 'Small', size: 14 },
@@ -19,13 +20,16 @@ const FONT_OPTIONS: { name: FontScaleName; label: string; size: number }[] = [
     { name: 'large', label: 'Large', size: 26 },
 ];
 
+const MODE_OPTIONS = MODES.map((mode) => ({ value: mode.value as ThemeMode, label: mode.label }));
+
 /**
- * Theme and text size. A tap previews it across the app; nothing is kept until
+ * Light or dark (or follow the phone), the theme and the text size — the same
+ * choices as the web app. A tap previews it across the app; nothing is kept until
  * Save, so trying themes never changes the app by accident. Cancel — or closing
  * the sheet — puts the saved look back.
  */
 export default function ThemeSettingsScreen() {
-    const { colors, themeName, fontScaleName, isPreviewing, customColors, previewLook, savePreview, discardPreview } = useTheme();
+    const { colors, themeName, mode, resolvedMode, fontScaleName, isPreviewing, customTheme, previewLook, savePreview, discardPreview } = useTheme();
 
     // Leaving without saving puts the saved look back
     const discard = useRef(discardPreview);
@@ -46,8 +50,10 @@ export default function ThemeSettingsScreen() {
         </ThemedText>
     );
 
-    const themeRow = (name: ThemeName, label: string, background: string, accent: string, isFirst: boolean) => {
+    // Swatches show the side that is on screen now, so a dark phone sees the dark sides
+    const themeRow = (name: ThemeName, label: string, note: string, isFirst: boolean) => {
         const isSelected = themeName === name;
+        const side = themeColorsFor(name, resolvedMode, customTheme);
         return (
             <PressableScale
                 key={name}
@@ -60,48 +66,64 @@ export default function ThemeSettingsScreen() {
                 style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: isFirst ? 0 : 1, borderTopColor: colors.surfaceLight }}
             >
                 <View style={{ flexDirection: 'row' }}>
-                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: background, borderWidth: 1, borderColor: withAlpha(colors.textPrimary, 0.12) }} />
-                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: accent, marginLeft: -10 }} />
+                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: side.background, borderWidth: 1, borderColor: withAlpha(colors.textPrimary, 0.15) }} />
+                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: side.primary, marginLeft: -10 }} />
                 </View>
-                <ThemedText weight={isSelected ? 'semibold' : 'normal'} style={{ flex: 1 }}>{label}</ThemedText>
+                <View style={{ flex: 1 }}>
+                    <ThemedText weight={isSelected ? 'semibold' : 'normal'}>{label}</ThemedText>
+                    <ThemedText variant="muted" size="xs">{note}</ThemedText>
+                </View>
                 {isSelected && <Check color={colors.primary} size={20} strokeWidth={2.5} />}
             </PressableScale>
         );
     };
-
-    const custom = customColors ? buildCustomTheme(customColors) : null;
 
     return (
         <Screen>
             <SheetHeader title="Appearance" onCancel={() => router.back()} onSave={save} saveDisabled={!isPreviewing} />
             <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xl }}>
                 <ThemedText variant={isPreviewing ? 'secondary' : 'muted'} size="sm" style={{ marginTop: spacing.md, marginLeft: 4 }}>
-                    {isPreviewing ? 'Previewing — tap Save to keep it, or Cancel to go back.' : 'Tap a theme to try it across the app. Save keeps it.'}
+                    {isPreviewing ? 'Previewing — tap Save to keep it, or Cancel to go back.' : 'Tap to try it across the app. Save keeps it.'}
                 </ThemedText>
 
-                {sectionTitle('Theme')}
-                <View accessibilityRole="radiogroup" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden' }}>
-                    {(Object.keys(builtInThemes) as Exclude<ThemeName, 'custom'>[]).map((name, i) =>
-                        themeRow(name, themeLabels[name], builtInThemes[name].background, builtInThemes[name].primary, i === 0),
-                    )}
-                    {custom && themeRow('custom', CUSTOM_THEME_LABEL, custom.background, custom.primary, false)}
-                </View>
+                {sectionTitle('Light or dark')}
+                <SegmentedControl options={MODE_OPTIONS} value={mode} onChange={(next) => previewLook({ mode: next })} accessibilityLabel="Light or dark" />
+                <ThemedText variant="muted" size="xs" style={{ marginTop: 6, marginLeft: 4 }}>
+                    {mode === 'system' ? `Auto follows your phone — ${resolvedMode} right now.` : 'Every theme has a light and a dark side.'}
+                </ThemedText>
 
-                <PressableScale
-                    onPress={() => router.push('/custom-theme')}
-                    accessibilityRole="button"
-                    pressedScale={0.98}
-                    style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
-                >
-                    <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceLight }}>
-                        <Paintbrush color={colors.textSecondary} size={18} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <ThemedText weight="medium">{custom ? `Edit ${CUSTOM_THEME_LABEL}` : 'Make your own'}</ThemedText>
-                        <ThemedText variant="secondary" size="xs">Pick the page, card, text and accent colours</ThemedText>
-                    </View>
-                    <ChevronRight color={colors.textMuted} size={18} />
-                </PressableScale>
+                {COLLECTIONS.map((collection) => {
+                    const themes = THEMES.filter((theme) => theme.collection === collection.id);
+                    return (
+                        <View key={collection.id}>
+                            {sectionTitle(`${collection.label} · ${themes.length}`)}
+                            <View accessibilityRole="radiogroup" style={{ backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden' }}>
+                                {themes.map((theme, i) => themeRow(theme.name, theme.label, theme.note, i === 0))}
+                            </View>
+                        </View>
+                    );
+                })}
+
+                {sectionTitle('Yours')}
+                <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden' }}>
+                    {customTheme && themeRow('custom', CUSTOM_THEME_LABEL, 'Your own colours', true)}
+                    <PressableScale
+                        onPress={() => router.push('/custom-theme')}
+                        accessibilityRole="button"
+                        pressedScale={1}
+                        pressedStyle={{ backgroundColor: colors.surfaceLight }}
+                        style={{ padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: customTheme ? 1 : 0, borderTopColor: colors.surfaceLight }}
+                    >
+                        <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceLight }}>
+                            <Paintbrush color={colors.textSecondary} size={18} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <ThemedText weight="medium">{customTheme ? `Edit ${CUSTOM_THEME_LABEL}` : 'Make your own'}</ThemedText>
+                            <ThemedText variant="secondary" size="xs">Page, card, text and accent — for light and dark</ThemedText>
+                        </View>
+                        <ChevronRight color={colors.textMuted} size={18} />
+                    </PressableScale>
+                </View>
 
                 {sectionTitle('Text size')}
                 <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', gap: spacing.sm }}>

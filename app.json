@@ -5,6 +5,7 @@
     "version": "1.0.0",
     "icon": "./assets/images/icon.png",
     "scheme": "shiftbuddy",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.shiftbuddy.app",
       "supportsTablet": true,

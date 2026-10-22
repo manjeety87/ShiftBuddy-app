@@ -3,27 +3,34 @@ import { AlertTriangle, MapPin, Plus } from 'lucide-react-native';
 import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { ColorSwatches } from '../components/ui/ColorSwatches';
+import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { KeyboardSafeView } from '../components/ui/KeyboardSafeView';
 import { PressableScale } from '../components/ui/PressableScale';
 import { SheetHeader } from '../components/ui/SheetHeader';
 import { ThemedInput } from '../components/ui/ThemedInput';
 import { ThemedText } from '../components/ui/ThemedText';
-import { builtInThemes, radius, spacing, themeLabels, type ThemeName } from '../constants/themes';
+import { radius, spacing, themeFamilies, THEMES, type ResolvedMode } from '../constants/themes';
 import { withAlpha } from '../lib/color';
-import { buildCustomTheme, colorsOf, CUSTOM_FIELDS, CUSTOM_THEME_LABEL, customThemeWarnings, normaliseHex, sameCustomColors, type CustomColors } from '../lib/customTheme';
+import { buildCustomTheme, CUSTOM_FIELDS, CUSTOM_SIDES, CUSTOM_THEME_LABEL, customThemeOf, customThemeWarnings, normaliseHex, sameCustomTheme, type CustomColors, type CustomTheme } from '../lib/customTheme';
 import { notify } from '../lib/notify';
 import { ThemePreview, useTheme } from '../lib/theme-context';
 import { useDiscardGuard } from '../lib/useDiscardGuard';
 
-// Starting points for each colour; any other one can be typed as a hex code
-const PRESETS: Record<keyof CustomColors, string[]> = {
-    background: ['#f4f1ea', '#f6f0e9', '#f0f2f0', '#f3f0f2', '#fafafa', '#1b1a17', '#171a1c', '#0f1115'],
-    surface: ['#ffffff', '#fbf8f3', '#f5f5f7', '#ece7dc', '#262420', '#212628', '#1c1c1e'],
-    textPrimary: ['#2b2a25', '#1f1f1f', '#232a2d', '#3a2f45', '#ede9df', '#e8e8e8', '#ffffff'],
-    primary: ['#6b8f71', '#b0674a', '#557a95', '#866aa0', '#007aff', '#e0669a', '#d97706', '#0f766e'],
+// Starting points for each colour on each side; any other one can be typed as a hex code
+const PRESETS: Record<ResolvedMode, Record<keyof CustomColors, string[]>> = {
+    light: {
+        background: ['#f4f1ea', '#f6f0e9', '#f0f2f0', '#f3f0f2', '#f5f5f7', '#fafafa'],
+        surface: ['#ffffff', '#fbf8f3', '#f5f5f7', '#ece7dc'],
+        textPrimary: ['#2b2a25', '#1f1f1f', '#232a2d', '#3a2f45'],
+        primary: ['#527558', '#a25a3d', '#4d728c', '#7d6197', '#006cdc', '#c2477f', '#b45309', '#0f766e'],
+    },
+    dark: {
+        background: ['#1b1a17', '#1d1917', '#171a1c', '#1b181d', '#0b0c10', '#101113'],
+        surface: ['#262420', '#292320', '#212628', '#262229', '#1c1c1e'],
+        textPrimary: ['#ede9df', '#efe7df', '#e4e9ea', '#e8e8e8', '#ffffff'],
+        primary: ['#8db393', '#d08e72', '#86abc6', '#b49acb', '#409cff', '#e0669a', '#f59e0b', '#2dd4bf'],
+    },
 };
-
-const STARTS = Object.keys(builtInThemes) as Exclude<ThemeName, 'custom'>[];
 
 /**
  * Their own theme: four colours, and a made-up Home drawn in them as they pick.
@@ -31,26 +38,34 @@ const STARTS = Object.keys(builtInThemes) as Exclude<ThemeName, 'custom'>[];
  * look, so nothing changes under them while they experiment.
  */
 export default function CustomThemeScreen() {
-    const { colors, themeName, customColors, saveCustomTheme } = useTheme();
-    // A first one starts from the theme on screen, so it begins somewhere that already works
-    const [initial] = useState<CustomColors>(() => (customColors ? colorsOf(buildCustomTheme(customColors)) : colorsOf(colors)));
+    const { colors, themeName, resolvedMode, customTheme, saveCustomTheme } = useTheme();
+    // A first one starts from the theme on screen (both sides), so it begins somewhere that already works
+    const [initial] = useState<CustomTheme>(() => customTheme ?? customThemeOf(themeName === 'custom' ? themeFamilies.sunsamaFocus : themeFamilies[themeName]));
     const [draft, setDraft] = useState(initial);
+    // Light and dark each get their own colours; editing starts on the side that is showing
+    const [side, setSide] = useState<ResolvedMode>(resolvedMode);
     const [editing, setEditing] = useState<keyof CustomColors>('primary');
-    const [hexText, setHexText] = useState(initial.primary);
+    const [hexText, setHexText] = useState(initial[resolvedMode].primary);
     const { leave } = useDiscardGuard(JSON.stringify(draft), JSON.stringify(initial));
 
-    const changed = !sameCustomColors(draft, initial);
-    const warnings = customThemeWarnings(draft);
+    const changed = !sameCustomTheme(draft, initial);
+    const warnings = customThemeWarnings(draft[side]);
     const field = CUSTOM_FIELDS.find(({ key }) => key === editing)!;
+    const sideLabel = CUSTOM_SIDES.find((option) => option.value === side)!.label;
 
     const setColor = (key: keyof CustomColors, value: string) => {
-        setDraft((before) => ({ ...before, [key]: value }));
+        setDraft((before) => ({ ...before, [side]: { ...before[side], [key]: value } }));
         if (key === editing) setHexText(value);
     };
 
     const choose = (key: keyof CustomColors) => {
         setEditing(key);
-        setHexText(draft[key]);
+        setHexText(draft[side][key]);
+    };
+
+    const switchSide = (next: ResolvedMode) => {
+        setSide(next);
+        setHexText(draft[next][editing]);
     };
 
     const save = () => {
@@ -66,35 +81,41 @@ export default function CustomThemeScreen() {
     return (
         <KeyboardSafeView>
             <SheetHeader
-                title={customColors ? `Edit ${CUSTOM_THEME_LABEL}` : 'Make Your Own'}
+                title={customTheme ? `Edit ${CUSTOM_THEME_LABEL}` : 'Make Your Own'}
                 onCancel={() => router.back()}
                 onSave={save}
                 saveLabel="Save & Use"
-                saveDisabled={!!customColors && !changed && themeName === 'custom'}
+                saveDisabled={!!customTheme && !changed && themeName === 'custom'}
             />
             <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xl }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-                <ThemedText variant="secondary" size="sm" weight="semibold" style={{ marginBottom: spacing.sm, marginLeft: 4 }}>PREVIEW · HOME</ThemedText>
-                <ThemePreview theme={buildCustomTheme(draft)}>
+                <View style={{ marginBottom: spacing.md }}>
+                    <SegmentedControl options={CUSTOM_SIDES} value={side} onChange={switchSide} accessibilityLabel="Which side to edit" />
+                    <ThemedText variant="muted" size="xs" style={{ marginTop: 6, marginLeft: 4 }}>Light and dark each get their own colours. Auto switches between them with your phone.</ThemedText>
+                </View>
+
+                <ThemedText variant="secondary" size="sm" weight="semibold" style={{ marginBottom: spacing.sm, marginLeft: 4 }}>PREVIEW · HOME, {sideLabel.toUpperCase()}</ThemedText>
+                <ThemePreview theme={buildCustomTheme(draft, side)}>
                     <HomePreview />
                 </ThemePreview>
                 <ThemedText variant="muted" size="xs" style={{ marginTop: 6, marginLeft: 4 }}>Made-up shifts, your colours.</ThemedText>
 
                 {label('START FROM')}
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-                    {STARTS.map((name) => (
+                    {THEMES.map(({ name, label: themeLabel }) => (
                         <PressableScale
                             key={name}
                             onPress={() => {
-                                const next = colorsOf(builtInThemes[name]);
+                                // Both sides at once: a theme's light and dark belong together
+                                const next = customThemeOf(themeFamilies[name]);
                                 setDraft(next);
-                                setHexText(next[editing]);
+                                setHexText(next[side][editing]);
                             }}
                             accessibilityRole="button"
-                            accessibilityLabel={`Start from ${themeLabels[name]}`}
+                            accessibilityLabel={`Start from ${themeLabel}`}
                             style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.full, backgroundColor: colors.surface }}
                         >
-                            <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: builtInThemes[name].primary }} />
-                            <ThemedText size="sm">{themeLabels[name]}</ThemedText>
+                            <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: themeFamilies[name][side].primary }} />
+                            <ThemedText size="sm">{themeLabel}</ThemedText>
                         </PressableScale>
                     ))}
                 </ScrollView>
@@ -113,12 +134,12 @@ export default function CustomThemeScreen() {
                                 pressedStyle={{ backgroundColor: colors.surfaceLight }}
                                 style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: colors.surfaceLight, backgroundColor: isOn ? withAlpha(colors.primary, 0.08) : undefined }}
                             >
-                                <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: draft[key], borderWidth: 1, borderColor: withAlpha(colors.textPrimary, 0.15) }} />
+                                <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: draft[side][key], borderWidth: 1, borderColor: withAlpha(colors.textPrimary, 0.15) }} />
                                 <View style={{ flex: 1 }}>
                                     <ThemedText weight={isOn ? 'semibold' : 'medium'}>{name}</ThemedText>
                                     <ThemedText variant="secondary" size="xs">{hint}</ThemedText>
                                 </View>
-                                <ThemedText variant="secondary" size="sm" style={{ fontVariant: ['tabular-nums'] }}>{draft[key].toUpperCase()}</ThemedText>
+                                <ThemedText variant="secondary" size="sm" style={{ fontVariant: ['tabular-nums'] }}>{draft[side][key].toUpperCase()}</ThemedText>
                             </PressableScale>
                         );
                     })}
@@ -126,19 +147,19 @@ export default function CustomThemeScreen() {
 
                 {label(`${field.label.toUpperCase()} COLOUR`)}
                 <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, gap: spacing.md }}>
-                    <ColorSwatches colors={PRESETS[editing]} selected={draft[editing]} onSelect={(color) => setColor(editing, color)} label={`${field.label} colour`} />
+                    <ColorSwatches colors={PRESETS[side][editing]} selected={draft[side][editing]} onSelect={(color) => setColor(editing, color)} label={`${field.label} colour`} />
                     <ThemedInput
                         value={hexText}
                         onChangeText={(text) => {
                             setHexText(text);
                             // A full code applies as it's typed; a short one (#abc) waits for the field to be left
                             const hex = text.replace(/^#?/, '#');
-                            if (/^#[0-9a-f]{6}$/i.test(hex)) setDraft((before) => ({ ...before, [editing]: hex.toLowerCase() }));
+                            if (/^#[0-9a-f]{6}$/i.test(hex)) setDraft((before) => ({ ...before, [side]: { ...before[side], [editing]: hex.toLowerCase() } }));
                         }}
                         onBlur={() => {
                             const hex = normaliseHex(hexText);
                             if (hex) setColor(editing, hex);
-                            else setHexText(draft[editing]);
+                            else setHexText(draft[side][editing]);
                         }}
                         autoCapitalize="none"
                         autoCorrect={false}

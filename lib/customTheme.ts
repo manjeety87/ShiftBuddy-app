@@ -1,9 +1,9 @@
-import { builtInThemes, eveningFocusTheme, sunsamaFocusTheme, type ThemeColors } from '../constants/themes';
-import { contrastRatio, isDarkColor, mixColors } from './color';
+import { themeFamilies, type ResolvedMode, type ThemeColors } from '../constants/themes';
+import { contrastRatio, mixColors } from './color';
 
-// The person's own theme: four colours they pick, and everything else mixed from
-// them so it stays one family. Status colours come from Sunsama Focus (or Evening
-// Focus on a dark page): they were contrast-checked, and red has to stay red.
+// The person's own theme: four colours for each side (light and dark), and
+// everything else mixed from them so it stays one family. Status colours come
+// from Sunsama Focus's matching side: they were contrast-checked, and red has to stay red.
 
 /** What their own theme is called in the theme list */
 export const CUSTOM_THEME_LABEL = 'My theme';
@@ -19,11 +19,19 @@ export interface CustomColors {
     primary: string;
 }
 
+/** Their own theme: one set of colours for each side */
+export type CustomTheme = Record<ResolvedMode, CustomColors>;
+
 export const CUSTOM_FIELDS: { key: keyof CustomColors; label: string; hint: string }[] = [
     { key: 'background', label: 'Page', hint: 'Behind everything' },
     { key: 'surface', label: 'Cards', hint: 'Lists, panels, fields' },
     { key: 'textPrimary', label: 'Text', hint: 'Words and icons' },
     { key: 'primary', label: 'Accent', hint: 'Buttons, links, today' },
+];
+
+export const CUSTOM_SIDES: { value: ResolvedMode; label: string }[] = [
+    { value: 'light', label: 'Light side' },
+    { value: 'dark', label: 'Dark side' },
 ];
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -35,7 +43,7 @@ export const normaliseHex = (input: string): string | null => {
     return /^[0-9a-f]{6}$/.test(value) ? `#${value}` : null;
 };
 
-/** The four colours of a built-in theme — where "Start from" begins. */
+/** The four colours of a theme side — where "Start from" begins. */
 export const colorsOf = (theme: ThemeColors): CustomColors => ({
     background: theme.background.toLowerCase(),
     surface: theme.surface.toLowerCase(),
@@ -43,29 +51,46 @@ export const colorsOf = (theme: ThemeColors): CustomColors => ({
     primary: theme.primary.toLowerCase(),
 });
 
-export const DEFAULT_CUSTOM_COLORS = colorsOf(builtInThemes.sunsamaFocus);
+/** Both sides of a built-in theme */
+export const customThemeOf = (family: { light: ThemeColors; dark: ThemeColors }): CustomTheme => ({ light: colorsOf(family.light), dark: colorsOf(family.dark) });
+
+export const DEFAULT_CUSTOM_THEME = customThemeOf(themeFamilies.sunsamaFocus);
+
+const validSide = (value: unknown, side: ResolvedMode): CustomColors => {
+    const saved = (value && typeof value === 'object' ? value : {}) as Partial<CustomColors>;
+    const pick = (key: keyof CustomColors) => (typeof saved[key] === 'string' && HEX.test(saved[key]!) ? saved[key]!.toLowerCase() : DEFAULT_CUSTOM_THEME[side][key]);
+    return { background: pick('background'), surface: pick('surface'), textPrimary: pick('textPrimary'), primary: pick('primary') };
+};
 
 /**
- * Saved colours → a theme. Anything missing or not a colour falls back to Sunsama
- * Focus (the value comes from storage, and older versions saved only an accent).
+ * Saved JSON → their theme. Anything missing or not a colour falls back to Sunsama
+ * Focus (the value comes from storage). Versions before light/dark saved one flat
+ * set: that becomes the light side, with Sunsama Focus's dark side.
  */
-export const buildCustomTheme = (saved: Partial<CustomColors> | null): ThemeColors => {
-    const pick = (key: keyof CustomColors) => (saved && typeof saved[key] === 'string' && HEX.test(saved[key]!) ? saved[key]! : DEFAULT_CUSTOM_COLORS[key]);
-    const colors: CustomColors = { background: pick('background'), surface: pick('surface'), textPrimary: pick('textPrimary'), primary: pick('primary') };
-    const isDark = isDarkColor(colors.background);
-    const base = isDark ? eveningFocusTheme : sunsamaFocusTheme;
+export const parseCustomTheme = (raw: unknown): CustomTheme => {
+    const saved = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    if ('light' in saved || 'dark' in saved) return { light: validSide(saved.light, 'light'), dark: validSide(saved.dark, 'dark') };
+    return { light: validSide(saved, 'light'), dark: DEFAULT_CUSTOM_THEME.dark };
+};
+
+/** One side of their theme as a full set of colours. */
+export const buildCustomTheme = (theme: CustomTheme, side: ResolvedMode): ThemeColors => {
+    const colors = theme[side];
+    const isDark = side === 'dark';
+    const base = themeFamilies.sunsamaFocus[side];
     return {
         ...base,
         ...colors,
         surfaceLight: mixColors(colors.background, colors.textPrimary, isDark ? 0.14 : 0.08),
-        textSecondary: mixColors(colors.textPrimary, colors.background, 0.38),
-        textMuted: mixColors(colors.textPrimary, colors.background, 0.58),
-        primaryLight: mixColors(colors.primary, colors.background, 0.25),
+        textSecondary: mixColors(colors.textPrimary, colors.background, isDark ? 0.3 : 0.38),
+        textMuted: mixColors(colors.textPrimary, colors.background, isDark ? 0.55 : 0.58),
+        primaryLight: mixColors(colors.primary, isDark ? colors.textPrimary : colors.background, 0.25),
         jobPalette: [colors.primary, ...base.jobPalette.slice(1)],
     };
 };
 
-export const sameCustomColors = (a: CustomColors, b: CustomColors) => CUSTOM_FIELDS.every(({ key }) => a[key] === b[key]);
+export const sameCustomTheme = (a: CustomTheme, b: CustomTheme) =>
+    CUSTOM_SIDES.every(({ value }) => CUSTOM_FIELDS.every(({ key }) => a[value][key] === b[value][key]));
 
 /**
  * What would be hard to read. Advice, not a block: it is their theme. Same bars the
