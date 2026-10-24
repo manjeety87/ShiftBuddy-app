@@ -21,7 +21,8 @@ import { useTheme } from '../../lib/theme-context';
 import { useFetch } from '../../lib/useFetch';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { useShiftsChanged } from '../../lib/shiftEvents';
-import { usePreferences } from '../../lib/preferences';
+import { useAuth } from '../../lib/auth-context';
+import { featuresOf } from '../../lib/features';
 import { IconButton, TextButton } from '../../components/ui/Button';
 
 
@@ -29,7 +30,7 @@ const shortDate = (date: Date) => date.toLocaleDateString('en-US', { month: 'sho
 
 export default function CalendarScreen() {
     const { colors } = useTheme();
-    const preferences = usePreferences();
+    const features = featuresOf(useAuth().user);
     const topInset = useScreenTopInset();
     const [mode, setMode] = useState<CalendarView>('month');
     const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
@@ -105,7 +106,7 @@ export default function CalendarScreen() {
                 </View>
 
                 {/* Settings › Customize can hide it, like the web app's shared schedules on Home */}
-                {preferences?.sharedSchedules && !!incomingShares.data?.length && (
+                {features.sharedOnHome && !!incomingShares.data?.length && (
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: spacing.md }}>
                         <ThemedText variant="muted" size="xs" weight="medium">SHARED WITH YOU</ThemedText>
                         {incomingShares.data.map((share) => (
@@ -152,9 +153,10 @@ export default function CalendarScreen() {
                         <>
                             <DayShifts day={selectedDate} shifts={shifts ?? []} onPressShift={openShift} />
                             {/* Settings › Customize can hide it */}
-                            {preferences?.calendarSummary && (
+                            {features.calendarSummary && (
                                 <View style={{ marginTop: spacing.lg }}>
                                     <PeriodSummary
+                                        showPay={features.pay}
                                         period={summaryPeriod}
                                         onPeriodChange={setSummaryPeriod}
                                         title={summaryTitle}

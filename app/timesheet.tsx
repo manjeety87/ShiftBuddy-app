@@ -18,6 +18,8 @@ import { useTheme } from '../lib/theme-context';
 import { formatCalendarDay, getHoursSummary, getTimesheet, useTimesheetChanged, type HoursSummary, type SummaryRange, type Timesheet, type TimesheetEntry } from '../lib/timesheet';
 import { useFetch } from '../lib/useFetch';
 import { useMyJobs } from '../lib/useMyJobs';
+import { useAuth } from '../lib/auth-context';
+import { featuresOf } from '../lib/features';
 
 /** What the screen is showing: every job together for a range, or one job by its pay period. */
 type Selection = 'all' | string;
@@ -42,6 +44,7 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 /** Hours actually worked, and what they earned — all jobs for a week, two weeks, a month or all time, or one job for a pay period: `/timesheet?jobId=` (jobId optional). */
 export default function TimesheetScreen() {
     const { colors } = useTheme();
+    const features = featuresOf(useAuth().user);
     const params = useLocalSearchParams<{ jobId?: string }>();
     const { data: jobs, isLoading: jobsLoading, error: jobsError, refetch: refetchJobs } = useMyJobs();
     const [chosen, setChosen] = useState<Selection | null>(params.jobId ?? null);
@@ -105,6 +108,7 @@ export default function TimesheetScreen() {
                 <ThemedText variant="secondary" size="sm">
                     {formatTime(entry.clockIn)} – {entry.clockOut ? formatTime(entry.clockOut) : 'still working'}
                     {entry.breakMinutes > 0 ? ` · ${entry.breakMinutes} min break` : ''}
+                    {entry.isAutomatic ? ' · added for you' : ''}
                 </ThemedText>
             </View>
             {entry.paidMinutes === null ? (
@@ -121,7 +125,10 @@ export default function TimesheetScreen() {
         const isAllTime = isAll && data.range === 'all';
         const names = isAll && data.range !== 'all' ? RANGE_NAMES[data.range] : null;
         const tax = data.taxDeductionPercent;
-        const estimatedPay = data.totals.estimatedPay ?? null;
+        // With pay estimates switched off (Settings › Features) the timesheet is hours only
+        const showPay = features.pay;
+        const grossPay = showPay ? data.totals.grossPay : null;
+        const estimatedPay = showPay ? (data.totals.estimatedPay ?? null) : null;
         const periodTitle = !data.period.start
             ? 'All time'
             : isAllTime
@@ -179,9 +186,9 @@ export default function TimesheetScreen() {
                             {data.totals.breakMinutes > 0 ? ` · ${formatDuration(data.totals.breakMinutes)} unpaid breaks taken off` : ''}
                         </ThemedText>
                     </View>
-                    {data.totals.grossPay !== null ? (
+                    {grossPay !== null ? (
                         <View style={{ alignItems: 'flex-end' }}>
-                            <ThemedText size="xl" weight="bold" color={colors.success} style={{ fontVariant: ['tabular-nums'] }}>{money(data.totals.grossPay)}</ThemedText>
+                            <ThemedText size="xl" weight="bold" color={colors.success} style={{ fontVariant: ['tabular-nums'] }}>{money(grossPay)}</ThemedText>
                             <ThemedText variant="muted" size="xs">gross</ThemedText>
                             {estimatedPay !== null && (
                                 <ThemedText size="sm" weight="semibold" style={{ marginTop: 4, fontVariant: ['tabular-nums'] }}>
@@ -189,7 +196,7 @@ export default function TimesheetScreen() {
                                 </ThemedText>
                             )}
                         </View>
-                    ) : !isAll ? (
+                    ) : !isAll && showPay ? (
                         <TextButton label="Add hourly rate" size="sm" onPress={() => router.push(`/edit-job/${data.job.id}`)} />
                     ) : null}
                 </View>
@@ -211,11 +218,11 @@ export default function TimesheetScreen() {
                                     {jobDot(line.job)}
                                     <View style={{ flex: 1 }}>
                                         <ThemedText weight="semibold" numberOfLines={1}>{jobName(line.job)}</ThemedText>
-                                        <ThemedText variant="muted" size="xs">{plural(line.entryCount, 'shift')}{line.grossPay === null ? ' · no hourly rate' : ''}</ThemedText>
+                                        <ThemedText variant="muted" size="xs">{plural(line.entryCount, 'shift')}{showPay && line.grossPay === null ? ' · no hourly rate' : ''}</ThemedText>
                                     </View>
                                     <View style={{ alignItems: 'flex-end' }}>
                                         <ThemedText weight="semibold" style={{ fontVariant: ['tabular-nums'] }}>{formatDuration(line.paidMinutes)}</ThemedText>
-                                        {line.grossPay !== null && (
+                                        {showPay && line.grossPay !== null && (
                                             <ThemedText variant="muted" size="xs" style={{ fontVariant: ['tabular-nums'] }}>
                                                 {money(line.grossPay)}{line.estimatedPay !== null ? ` · est. ${money(line.estimatedPay)}` : ''}
                                             </ThemedText>
@@ -225,7 +232,7 @@ export default function TimesheetScreen() {
                                 </PressableScale>
                             ))}
                         </View>
-                        {data.totals.missingRates && data.totals.grossPay !== null && (
+                        {data.totals.missingRates && grossPay !== null && (
                             <ThemedText variant="muted" size="xs" style={{ marginTop: -spacing.md, marginBottom: spacing.lg, marginLeft: 4 }}>The pay figure leaves out jobs without an hourly rate.</ThemedText>
                         )}
                     </>

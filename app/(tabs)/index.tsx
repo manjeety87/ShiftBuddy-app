@@ -1,5 +1,6 @@
 import { GettingStarted } from "@/components/GettingStarted";
 import { NoShiftsCard } from "@/components/NoShiftsCard";
+import { UnloggedHoursCard } from "@/components/UnloggedHoursCard";
 import { UpcomingShiftCard } from "@/components/UpcomingShiftCard";
 import { router, useFocusEffect } from "expo-router";
 import { Plus, Repeat, ScanLine } from "lucide-react-native";
@@ -20,6 +21,7 @@ import { withAlpha } from "../../lib/color";
 import { getConflicts } from "../../lib/conflicts";
 import { getWeekDays, groupJobColorsByDate } from "../../lib/dateUtils";
 import { addDays } from "../../lib/daySegments";
+import { featuresOf } from "../../lib/features";
 import { showAlert } from "../../lib/dialog";
 import { motion } from "../../lib/motion";
 import { notify } from "../../lib/notify";
@@ -27,7 +29,11 @@ import { useOnboarding } from "../../lib/onboarding";
 import { useShiftsChanged } from "../../lib/shiftEvents";
 import { copyShifts, getMyShifts } from "../../lib/shifts";
 import { useTheme } from "../../lib/theme-context";
-import { getCurrentEntry, useTimesheetChanged } from "../../lib/timesheet";
+import {
+  getCurrentEntry,
+  getUnloggedShifts,
+  useTimesheetChanged,
+} from "../../lib/timesheet";
 import { useFetch } from "../../lib/useFetch";
 import { useMyJobs } from "../../lib/useMyJobs";
 import { useNow } from "../../lib/useNow";
@@ -38,6 +44,7 @@ const RECENT_DAYS = 28;
 
 export default function HomeScreen() {
   const { user } = useAuth();
+  const features = featuresOf(user);
   const { colors } = useTheme();
   const topInset = useScreenTopInset();
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -84,7 +91,19 @@ export default function HomeScreen() {
     if (jobs?.length !== 0 || !onboarding || onboarding.welcomeSeen) return;
     router.push("/welcome");
   }, [jobs?.length, onboarding]);
-  useTimesheetChanged(refetchClockedIn);
+  // Finished shifts nobody clocked ("Add your hours?"). Re-asked when the
+  // features change: "Always add my hours" empties it on the backend.
+  const { data: unlogged, refetch: refetchUnlogged } = useFetch(
+    () =>
+      features.timesheet
+        ? getUnloggedShifts().catch(() => [])
+        : Promise.resolve([]),
+    [features.timesheet, features.autoHours],
+  );
+  useTimesheetChanged(() => {
+    refetchClockedIn();
+    refetchUnlogged();
+  });
   const now = useNow();
 
   // Overlaps + travel-time conflicts from the backend; routing lookups make it slower, so it loads independently
@@ -97,12 +116,14 @@ export default function HomeScreen() {
       refetchConflicts();
       refetchClockedIn();
       refetchRecent();
+      refetchUnlogged();
     }, [
       refetchWeek,
       refetchUpcoming,
       refetchConflicts,
       refetchClockedIn,
       refetchRecent,
+      refetchUnlogged,
     ]),
   );
   useShiftsChanged(() => {
@@ -110,6 +131,7 @@ export default function HomeScreen() {
     refetchUpcoming();
     refetchConflicts();
     refetchRecent();
+    refetchUnlogged();
   });
 
   // One dot per job on each day of the strip
@@ -208,16 +230,18 @@ export default function HomeScreen() {
       weekShifts?.length ||
       recentShifts?.length
     ),
-    hasHome: !!user?.homeLocation,
-    hasClockedIn:
-      !!clockedIn ||
-      !!recentShifts?.some((shift) => shift.timeEntries?.length),
+    // Steps for a feature that's switched off are left out (undefined)
+    hasHome: features.leaveBy ? !!user?.homeLocation : undefined,
+    hasClockedIn: features.timesheet
+      ? !!clockedIn ||
+        !!recentShifts?.some((shift) => shift.timeEntries?.length)
+      : undefined,
   };
   // Waits for everything it reads, so the card never appears and then vanishes
   const showGuide =
     !!onboarding &&
     !onboarding.guideHidden &&
-    !Object.values(progress).every(Boolean) &&
+    !Object.values(progress).every((done) => done !== false) &&
     jobs !== null &&
     upcomingShifts !== null &&
     recentShifts !== null;
@@ -325,6 +349,7 @@ export default function HomeScreen() {
           ) : hasNoUpcomingShifts && !showGuide ? (
             <NoShiftsCard isFirstTime={isFirstTime} />
           ) : null}
+          {!!unlogged?.length && <UnloggedHoursCard items={unlogged} />}
 
           <DayShifts
             day={selectedDate}

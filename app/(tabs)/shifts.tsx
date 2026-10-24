@@ -20,6 +20,8 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl';
 import { deleteShiftsWithUndo } from '../../lib/shiftActions';
 import { useShiftsChanged } from '../../lib/shiftEvents';
 import { useTimesheetChanged } from '../../lib/timesheet';
+import { useAuth } from '../../lib/auth-context';
+import { featuresOf } from '../../lib/features';
 
 type ListMode = 'upcoming' | 'past' | 'missed';
 
@@ -63,6 +65,7 @@ const groupByDay = (shifts: Shift[]): DaySection[] => {
 
 export default function ShiftsScreen() {
     const { colors } = useTheme();
+    const features = featuresOf(useAuth().user);
     const topInset = useScreenTopInset();
     const [mode, setMode] = useState<ListMode>('upcoming');
     // "Now" as state: refreshed on focus and each minute, so a shift moves from Upcoming to Past on its own
@@ -175,7 +178,7 @@ export default function ShiftsScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md, minHeight: 40 }}>
                         <ThemedText size="2xl" weight="bold">Shifts</ThemedText>
                         <View style={{ flexDirection: 'row', gap: 8 }}>
-                            {roundButton(() => router.push('/pay-summary'), <DollarSign color={colors.textPrimary} size={20} />, { label: 'Pay summary' })}
+                            {features.pay && roundButton(() => router.push('/pay-summary'), <DollarSign color={colors.textPrimary} size={20} />, { label: 'Pay summary' })}
                             {roundButton(() => router.push('/import-schedule'), <ScanLine color={colors.textPrimary} size={20} />, { label: 'Scan a schedule' })}
                             {roundButton(() => router.push('/create-shift'), <Plus color={colors.onPrimary} size={22} />, { label: 'Add a shift', filled: true })}
                         </View>
@@ -211,7 +214,7 @@ export default function ShiftsScreen() {
                         renderItem={({ item }) => {
                             // A finished shift shows the hours clocked for it. Nothing clocked = nothing
                             // extra here; adding hours is on the shift's own screen
-                            const showHours = mode === 'past' && !selectionMode && !!item.timeEntries?.length;
+                            const showHours = mode === 'past' && features.timesheet && !selectionMode && !!item.timeEntries?.length;
                             return (
                                 <>
                                     <ShiftCard

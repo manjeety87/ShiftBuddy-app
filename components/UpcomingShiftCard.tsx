@@ -8,6 +8,7 @@ import { useAuth } from '../lib/auth-context';
 import { withAlpha } from '../lib/color';
 import { getLeavePlan, summarizeLeavePlan, type StartChoice } from '../lib/commute';
 import { formatCountdown, formatTime } from '../lib/dateUtils';
+import { featuresOf } from '../lib/features';
 import { motion } from '../lib/motion';
 import { startOfDay } from '../lib/daySegments';
 import { jobName, jobRole } from '../lib/jobLabels';
@@ -42,13 +43,17 @@ export function UpcomingShiftCard({ shift, isClockedIn = false }: { shift: Shift
     const now = useNow(); // keeps "Starts in 18h 20m" live
     const ink = colors.onPrimary;
     const home = user?.homeLocation ?? null;
+    const features = featuresOf(user);
 
     const label = (text: string) => (
         <Text style={{ color: withAlpha(ink, 0.6), fontSize: 12, fontWeight: '500', marginBottom: 4 }}>{text}</Text>
     );
 
     // Weather at the shift's start. Until it loads — and when there is none — the corner shows the plain job icon.
-    const weather = useFetch(() => getShiftWeather(shift.id), [shift.id, shift.startTime, shift.job.latitude, shift.job.longitude, home?.latitude, home?.longitude]);
+    const weather = useFetch(
+        () => (features.weather ? getShiftWeather(shift.id) : Promise.resolve(null)),
+        [features.weather, shift.id, shift.startTime, shift.job.latitude, shift.job.longitude, home?.latitude, home?.longitude]
+    );
     const atStart = weather.data?.status === 'ok' ? weather.data.atStart : null;
     const corner = { minWidth: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(ink, 0.2) } as const;
 
@@ -128,12 +133,12 @@ export function UpcomingShiftCard({ shift, isClockedIn = false }: { shift: Shift
                         <Text style={{ color: withAlpha(ink, 0.75), fontSize: 12 }}>{Date.parse(shift.endTime) > now ? `${formatCountdown(shift.endTime)} left` : 'Finished'}</Text>
                     </View>
                 </View>
-            ) : (
+            ) : features.leaveBy ? (
                 // Keyed by shift: "From home?" is a what-if for this one shift, never carried to the next
                 <LeaveLine key={shift.id} shift={shift} />
-            )}
+            ) : null}
 
-            {canClockIn ? (
+            {features.timesheet && canClockIn ? (
                 // The card's one solid button: starting the clock is what the user is here to do when the shift comes
                 <PressableScale
                     onPress={handleClockIn}
@@ -148,15 +153,15 @@ export function UpcomingShiftCard({ shift, isClockedIn = false }: { shift: Shift
                         · {hasStarted ? `started ${formatTime(shift.startTime)}` : `starts in ${formatCountdown(shift.startTime)}`}
                     </Text>
                 </PressableScale>
-            ) : (
+            ) : !hasStarted ? (
                 <View accessible style={{ alignItems: 'center', gap: 2, paddingVertical: 10, borderRadius: 16, backgroundColor: withAlpha(ink, 0.12) }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <Timer color={ink} size={18} />
                         <Text style={{ color: ink, fontWeight: '700', fontSize: 16 }}>Starts in {formatCountdown(shift.startTime)}</Text>
                     </View>
-                    <Text style={{ color: withAlpha(ink, 0.75), fontSize: 12 }}>Clock in opens at {formatTime(new Date(clockOpensAt).toISOString())}</Text>
+                    {features.timesheet && <Text style={{ color: withAlpha(ink, 0.75), fontSize: 12 }}>Clock in opens at {formatTime(new Date(clockOpensAt).toISOString())}</Text>}
                 </View>
-            )}
+            ) : null}
 
             {/* Sick, called off…: marked here so the card moves on to the next shift */}
             <PressableScale

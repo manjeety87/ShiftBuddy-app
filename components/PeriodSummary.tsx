@@ -21,17 +21,19 @@ interface PeriodSummaryProps {
     rangeLabel: string;
     summary: PaySummary | null;
     isLoading: boolean;
+    /** Pay estimates switched on (Settings › Features): otherwise only hours */
+    showPay: boolean;
 }
 
 const formatHours = (hours: number) => `${Math.round(hours * 10) / 10}h`;
 const formatMoney = (amount: number) => `$${Math.round(amount).toLocaleString('en-US')}`;
 
 /** At-a-glance totals for the selected week or month: hours, shifts, estimated pay, and how they split across jobs. */
-export function PeriodSummary({ period, onPeriodChange, title, rangeLabel, summary, isLoading }: PeriodSummaryProps) {
+export function PeriodSummary({ period, onPeriodChange, title, rangeLabel, summary, isLoading, showPay }: PeriodSummaryProps) {
     const { colors } = useTheme();
     const byJob = [...(summary?.byJob ?? [])].sort((a, b) => b.hours - a.hours);
     const totalHours = summary?.totalHours ?? 0;
-    const hasPay = (summary?.totalGrossPay ?? 0) > 0;
+    const hasPay = showPay && (summary?.totalGrossPay ?? 0) > 0;
     const someJobsHaveNoRate = byJob.some((job) => !job.hourlyRate);
 
     return (
@@ -92,24 +94,28 @@ export function PeriodSummary({ period, onPeriodChange, title, rangeLabel, summa
                                 </View>
                                 <View style={{ alignItems: 'flex-end' }}>
                                     <ThemedText size="sm" weight="semibold" style={{ fontVariant: ['tabular-nums'] }}>{formatHours(job.hours)}</ThemedText>
-                                    <ThemedText variant="muted" size="xs">{job.hourlyRate ? formatMoney(job.grossPay) : 'no rate'}</ThemedText>
+                                    {showPay && <ThemedText variant="muted" size="xs">{job.hourlyRate ? formatMoney(job.grossPay) : 'no rate'}</ThemedText>}
                                 </View>
                             </View>
                         ))}
 
-                        <View style={{ height: 1, backgroundColor: colors.surfaceLight, marginVertical: spacing.sm }} />
-                        <PressableScale
-                            onPress={() => router.push(someJobsHaveNoRate ? '/(tabs)/jobs' : '/pay-summary')}
-                            accessibilityRole="button"
-                            pressedScale={1}
-                            pressedStyle={{ opacity: 0.6 }}
-                            style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 4 }}
-                        >
-                            <ThemedText size="sm" weight="medium" color={colors.primary} style={{ flex: 1 }}>
-                                {someJobsHaveNoRate ? 'Add hourly rates to see your pay' : 'Pay details'}
-                            </ThemedText>
-                            <ChevronRight color={colors.primary} size={16} />
-                        </PressableScale>
+                        {showPay && (
+                            <>
+                                <View style={{ height: 1, backgroundColor: colors.surfaceLight, marginVertical: spacing.sm }} />
+                                <PressableScale
+                                    onPress={() => router.push(someJobsHaveNoRate ? '/(tabs)/jobs' : '/pay-summary')}
+                                    accessibilityRole="button"
+                                    pressedScale={1}
+                                    pressedStyle={{ opacity: 0.6 }}
+                                    style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 4 }}
+                                >
+                                    <ThemedText size="sm" weight="medium" color={colors.primary} style={{ flex: 1 }}>
+                                        {someJobsHaveNoRate ? 'Add hourly rates to see your pay' : 'Pay details'}
+                                    </ThemedText>
+                                    <ChevronRight color={colors.primary} size={16} />
+                                </PressableScale>
+                            </>
+                        )}
                     </>
                 )}
             </Animated.View>

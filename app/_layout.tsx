@@ -29,7 +29,7 @@ const SHEET_ROUTES = [
   'delete-account',
   'security',
   'your-data',
-  'customize',
+  'features',
   'tax-settings',
   'pay-summary',
   'theme-settings',

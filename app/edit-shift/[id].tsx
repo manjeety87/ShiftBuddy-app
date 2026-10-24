@@ -25,6 +25,8 @@ import { deleteShiftsWithUndo } from '../../lib/shiftActions';
 import type { Shift } from '../../interfaces/shift.d';
 import { ThemedInput } from '../../components/ui/ThemedInput';
 import { KeyboardSafeView } from '../../components/ui/KeyboardSafeView';
+import { useAuth } from '../../lib/auth-context';
+import { featuresOf } from '../../lib/features';
 
 // What "unchanged" means for the discard prompt: same job, same real start/end, same notes
 const shiftFormSnapshot = (jobId: string | null, times: ShiftTimes, notes: string) => {
@@ -34,6 +36,7 @@ const shiftFormSnapshot = (jobId: string | null, times: ShiftTimes, notes: strin
 
 export default function EditShiftScreen() {
     const { colors } = useTheme();
+    const features = featuresOf(useAuth().user);
     const { id } = useLocalSearchParams<{ id: string }>();
     const { data: jobs } = useMyJobs();
 
@@ -165,7 +168,7 @@ export default function EditShiftScreen() {
                 )}
 
                 {/* Hours can be added once a shift has begun; ones already clocked (the clock opens 10 minutes early) always show */}
-                {savedShift && !savedShift.missedReason && (Date.parse(savedShift.startTime) <= openedAt || !!savedShift.timeEntries?.length) && (
+                {savedShift && !savedShift.missedReason && (features.timesheet || !!savedShift.timeEntries?.length) && (Date.parse(savedShift.startTime) <= openedAt || !!savedShift.timeEntries?.length) && (
                     <>
                         <ThemedText variant="secondary" size="sm" weight="medium" style={{ marginBottom: 8, marginLeft: 4 }}>HOURS WORKED</ThemedText>
                         <View style={{ marginBottom: 32 }}>
@@ -176,7 +179,7 @@ export default function EditShiftScreen() {
 
                 <IconActionBar
                     actions={[
-                        { icon: Navigation, label: 'Route', onPress: () => router.push(`/transit/${id}`) },
+                        ...(features.leaveBy ? [{ icon: Navigation, label: 'Route', onPress: () => router.push(`/transit/${id}`) }] : []),
                         { icon: Copy, label: 'Copy', onPress: () => router.push(`/copy-shifts?ids=${id}`) },
                         { icon: Trash2, label: 'Delete', onPress: handleDelete, destructive: true, busy: isDeleting, disabled: isSaving },
                     ]}

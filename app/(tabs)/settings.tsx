@@ -13,6 +13,7 @@ import { useTheme } from '../../lib/theme-context';
 import { showAlert } from '../../lib/dialog';
 import { Button } from '../../components/ui/Button';
 import { ListRow } from '../../components/ui/ListRow';
+import { featuresOf } from '../../lib/features';
 
 export default function SettingsScreen() {
     const { user, logout } = useAuth();
@@ -37,16 +38,18 @@ export default function SettingsScreen() {
 
     const initials = user?.name?.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
 
+    const features = featuresOf(user);
     const menuItems = [
+        // First: what the app can do is what people ask about most
+        { icon: SlidersHorizontal, label: 'Features', onPress: () => router.push('/features') },
         { icon: UserIcon, label: 'Edit Profile', onPress: () => router.push('/edit-profile') },
         { icon: House, label: 'Home & Commute', onPress: () => router.push('/home-address') },
-        { icon: ClipboardList, label: 'Timesheet', onPress: () => router.push('/timesheet') },
+        ...(features.timesheet ? [{ icon: ClipboardList, label: 'Timesheet', onPress: () => router.push('/timesheet') }] : []),
         { icon: Users, label: 'Sharing', onPress: () => router.push('/sharing') },
         // Where notifications can't run (Android Expo Go) this lives under "Coming soon" instead
         ...(notificationsSupported ? [{ icon: Bell, label: 'Reminders & Alarms', onPress: () => router.push('/reminder-settings') }] : []),
         { icon: Palette, label: 'Appearance', onPress: () => router.push('/theme-settings') },
-        { icon: Percent, label: 'Tax Deduction (Estimate)', onPress: () => router.push('/tax-settings') },
-        { icon: SlidersHorizontal, label: 'Customize', onPress: () => router.push('/customize') },
+        ...(features.pay ? [{ icon: Percent, label: 'Tax Deduction (Estimate)', onPress: () => router.push('/tax-settings') }] : []),
         { icon: ShieldCheck, label: 'Password & Security', onPress: () => router.push('/security') },
         { icon: FolderDown, label: 'Your Data', onPress: () => router.push('/your-data') },
     ];

@@ -11,8 +11,10 @@ import { ThemedText } from './ui/ThemedText';
 export interface GettingStartedProgress {
     hasJob: boolean;
     hasShift: boolean;
-    hasHome: boolean;
-    hasClockedIn: boolean;
+    /** undefined: leave-by times are switched off, so the step isn't offered */
+    hasHome?: boolean;
+    /** undefined: the timesheet is switched off */
+    hasClockedIn?: boolean;
 }
 
 interface Step {
@@ -34,7 +36,8 @@ interface Step {
  */
 export function GettingStarted({ progress }: { progress: GettingStartedProgress }) {
     const { colors } = useTheme();
-    const steps: Step[] = [
+    // A step for a feature that's switched off is null and left out
+    const candidates: (Step | null)[] = [
         { done: progress.hasJob, title: 'Add your job', hint: 'Each place you work, once. Shifts, pay and travel hang off it.', open: () => router.push('/create-job') },
         {
             done: progress.hasShift,
@@ -48,9 +51,10 @@ export function GettingStarted({ progress }: { progress: GettingStartedProgress 
                   ]
                 : undefined,
         },
-        { done: progress.hasHome, title: 'Set your home address', hint: 'So we can tell you when to leave for each shift.', open: () => router.push('/home-address') },
-        { done: progress.hasClockedIn, title: 'Clock in at a shift', hint: 'The Clock In button shows on your next shift 10 minutes before it starts.' },
+        progress.hasHome === undefined ? null : { done: progress.hasHome, title: 'Set your home address', hint: 'So we can tell you when to leave for each shift.', open: () => router.push('/home-address') },
+        progress.hasClockedIn === undefined ? null : { done: progress.hasClockedIn, title: 'Clock in at a shift', hint: 'The Clock In button shows on your next shift 10 minutes before it starts.' },
     ];
+    const steps = candidates.filter((step): step is Step => step !== null);
     const doneCount = steps.filter((step) => step.done).length;
     if (doneCount === steps.length) return null;
 
