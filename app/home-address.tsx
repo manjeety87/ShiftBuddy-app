@@ -7,13 +7,14 @@ import { ThemedText } from '../components/ui/ThemedText';
 import { radius, spacing } from '../constants/themes';
 import type { CommuteMode, Place } from '../interfaces/user.d';
 import { removeHomeLocation, setHomeLocation, updateProfile } from '../lib/auth';
-import { ARRIVAL_BUFFER_OPTIONS, describeArrivalBuffer } from '../lib/commute';
+import { ARRIVAL_BUFFER_MAX_MINUTES, ARRIVAL_BUFFER_OPTIONS, arrivalBufferChoice, describeArrivalBuffer, describeArriveByExample, type ArrivalBufferChoice } from '../lib/commute';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { useAuth } from '../lib/auth-context';
 import { useTheme } from '../lib/theme-context';
 import { SheetHeader } from '../components/ui/SheetHeader';
 import { showAlert } from '../lib/dialog';
-import { Button } from '../components/ui/Button';
+import { Button, TextButton } from '../components/ui/Button';
+import { ThemedInput } from '../components/ui/ThemedInput';
 import { KeyboardSafeView } from '../components/ui/KeyboardSafeView';
 
 export default function HomeAddressScreen() {
@@ -26,9 +27,11 @@ export default function HomeAddressScreen() {
     // Shown immediately on tap; rolled back if saving fails
     const [commuteMode, setCommuteMode] = useState<CommuteMode>(user?.commuteMode ?? 'TRANSIT');
     const [arrivalBuffer, setArrivalBuffer] = useState(user?.arrivalBufferMinutes ?? 10);
+    // Custom stays picked while its minutes are typed — they save only on Set, never mid-typing
+    const [isCustom, setIsCustom] = useState(arrivalBufferChoice(arrivalBuffer) === 'custom');
+    const [customMinutes, setCustomMinutes] = useState(isCustom ? String(arrivalBuffer) : '');
 
-    const handleBufferChange = async (value: string) => {
-        const minutes = Number(value);
+    const saveBuffer = async (minutes: number) => {
         if (minutes === arrivalBuffer) return;
         const previous = arrivalBuffer;
         setArrivalBuffer(minutes);
@@ -39,6 +42,15 @@ export default function HomeAddressScreen() {
             showAlert('Could not save', err?.response?.data?.message || 'Please try again.');
         }
     };
+
+    const handleBufferChange = (choice: ArrivalBufferChoice) => {
+        setIsCustom(choice === 'custom');
+        if (choice !== 'custom') saveBuffer(Number(choice));
+    };
+
+    const customValue = Number(customMinutes);
+    const isCustomValid = /^\d+$/.test(customMinutes) && customValue <= ARRIVAL_BUFFER_MAX_MINUTES;
+    const canSetCustom = isCustomValid && customValue !== arrivalBuffer;
 
     const handleCommuteChange = async (mode: CommuteMode) => {
         if (mode === commuteMode) return;
@@ -101,13 +113,36 @@ export default function HomeAddressScreen() {
                 <ThemedText variant="secondary" size="sm" weight="medium" style={{ marginBottom: 8, marginLeft: 4 }}>ARRIVE BEFORE YOUR SHIFT</ThemedText>
                 <SegmentedControl
                     options={[...ARRIVAL_BUFFER_OPTIONS]}
-                    value={String(arrivalBuffer)}
+                    value={isCustom ? 'custom' : arrivalBufferChoice(arrivalBuffer)}
                     onChange={handleBufferChange}
                     accessibilityLabel="How early to arrive"
                 />
+                {isCustom && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+                        <ThemedInput
+                            value={customMinutes}
+                            onChangeText={(text) => setCustomMinutes(text.replace(/[^0-9]/g, ''))}
+                            onSubmitEditing={() => isCustomValid && saveBuffer(customValue)}
+                            keyboardType="number-pad"
+                            returnKeyType="done"
+                            maxLength={3}
+                            placeholder="7"
+                            accessibilityLabel="Minutes early"
+                            autoFocus={customMinutes === ''}
+                            style={{ width: 72, textAlign: 'right' }}
+                        />
+                        <ThemedText variant="secondary" style={{ flex: 1 }}>min early</ThemedText>
+                        {/* TextButton doesn't dim itself when disabled */}
+                        <TextButton label="Set" onPress={() => saveBuffer(customValue)} disabled={!canSetCustom} style={{ opacity: canSetCustom ? 1 : 0.45 }} />
+                    </View>
+                )}
                 <ThemedText variant="muted" size="xs" style={{ marginTop: 6, marginBottom: spacing.xl, lineHeight: 16 }}>
-                    Leave-by times and routes are planned so you {describeArrivalBuffer(arrivalBuffer)}
-                    {arrivalBuffer === 0 ? ' — no room for a late bus.' : ' — time to settle in, or room for a late bus.'}
+                    {isCustom && customMinutes !== '' && !isCustomValid
+                        ? `Up to ${ARRIVAL_BUFFER_MAX_MINUTES} minutes.`
+                        : <>
+                            Leave-by times and routes are planned so you {describeArrivalBuffer(arrivalBuffer)}
+                            {arrivalBuffer === 0 ? ' — no room for a late bus.' : ` — ${describeArriveByExample(arrivalBuffer)}`}
+                        </>}
                 </ThemedText>
 
                 <ThemedText variant="secondary" size="sm" weight="medium" style={{ marginBottom: 4, marginLeft: 4 }}>HOME ADDRESS</ThemedText>
