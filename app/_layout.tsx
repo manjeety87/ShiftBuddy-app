@@ -23,6 +23,7 @@ const SHEET_ROUTES = [
   'review-shifts',
   'edit-job/[id]',
   'edit-shift/[id]',
+  'missed-shift/[id]',
   'edit-profile',
   'change-password',
   'delete-account',

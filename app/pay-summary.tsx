@@ -103,6 +103,7 @@ export default function PaySummaryScreen() {
                             <ThemedText weight="bold" style={{ fontSize: 34, lineHeight: 40, fontVariant: ['tabular-nums'] }}>{hours(data.totalHours)}</ThemedText>
                             <ThemedText variant="muted" size="xs" style={{ marginBottom: spacing.sm }}>
                                 {data.shiftCount} shift{data.shiftCount === 1 ? '' : 's'}
+                                {data.missed.total > 0 && ` · ${data.missed.total} missed, not counted`}
                             </ThemedText>
                             {data.totalHours > 0 && (
                                 <>

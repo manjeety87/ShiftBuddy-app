@@ -9,6 +9,7 @@ import { useTheme } from '../lib/theme-context';
 import { PressableScale } from './ui/PressableScale';
 import { ThemedText } from './ui/ThemedText';
 import { jobName, jobRole } from '../lib/jobLabels';
+import { missedTag } from '../lib/missedShifts';
 
 interface ShiftCardProps {
     shift: Shift;
@@ -26,6 +27,7 @@ interface ShiftCardProps {
 export function ShiftCard({ shift, onPress, onLongPress, selectionMode, selected, isNow, hasFooter }: ShiftCardProps) {
     const { colors } = useTheme();
     const minutes = Math.round((Date.parse(shift.endTime) - Date.parse(shift.startTime)) / 60000);
+    const missed = shift.missedReason;
 
     return (
         <PressableScale
@@ -46,7 +48,8 @@ export function ShiftCard({ shift, onPress, onLongPress, selectionMode, selected
                 borderBottomRightRadius: hasFooter ? 0 : radius.md,
                 borderLeftWidth: 4,
                 borderLeftColor: shift.job.color,
-                opacity: selectionMode && !selected ? 0.6 : 1,
+                // Missed: still listed, but plainly not a shift to go to
+                opacity: selectionMode && !selected ? 0.6 : missed ? 0.65 : 1,
             }}
         >
             {selectionMode && (
@@ -58,20 +61,26 @@ export function ShiftCard({ shift, onPress, onLongPress, selectionMode, selected
             <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <ThemedText weight="semibold" numberOfLines={1} style={{ flexShrink: 1 }}>{jobName(shift.job)}</ThemedText>
-                    {isNow && (
+                    {missed ? (
+                        <View style={{ paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.full, backgroundColor: withAlpha(colors.textMuted, 0.15) }}>
+                            <ThemedText size="xs" weight="bold" variant="secondary">{missedTag(missed).toUpperCase()}</ThemedText>
+                        </View>
+                    ) : isNow && (
                         <View style={{ paddingHorizontal: 6, paddingVertical: 1, borderRadius: radius.full, backgroundColor: withAlpha(colors.success, 0.15) }}>
                             <ThemedText size="xs" weight="bold" color={colors.success}>NOW</ThemedText>
                         </View>
                     )}
                 </View>
                 {!!jobRole(shift.job) && <ThemedText variant="secondary" size="sm" numberOfLines={1}>{jobRole(shift.job)}</ThemedText>}
-                {shift.notes ? (
+                {missed && shift.missedNote ? (
+                    <ThemedText variant="muted" size="xs" numberOfLines={1} style={{ marginTop: 4, fontStyle: 'italic' }}>{shift.missedNote}</ThemedText>
+                ) : shift.notes ? (
                     <ThemedText variant="muted" size="xs" numberOfLines={1} style={{ marginTop: 4, fontStyle: 'italic' }}>{shift.notes}</ThemedText>
                 ) : null}
             </View>
 
             <View style={{ alignItems: 'flex-end', marginLeft: spacing.sm }}>
-                <ThemedText size="sm" weight="medium" style={{ fontVariant: ['tabular-nums'] }}>
+                <ThemedText size="sm" weight="medium" style={{ fontVariant: ['tabular-nums'], textDecorationLine: missed ? 'line-through' : 'none' }}>
                     {formatTime(shift.startTime)} – {formatTime(shift.endTime)}
                 </ThemedText>
                 <ThemedText variant="muted" size="xs">{formatDuration(minutes)}</ThemedText>

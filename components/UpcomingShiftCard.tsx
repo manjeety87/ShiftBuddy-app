@@ -157,6 +157,20 @@ export function UpcomingShiftCard({ shift, isClockedIn = false }: { shift: Shift
                     <Text style={{ color: withAlpha(ink, 0.75), fontSize: 12 }}>Clock in opens at {formatTime(new Date(clockOpensAt).toISOString())}</Text>
                 </View>
             )}
+
+            {/* Sick, called off…: marked here so the card moves on to the next shift */}
+            <PressableScale
+                onPress={() => router.push(`/missed-shift/${shift.id}`)}
+                accessibilityRole="button"
+                hitSlop={10}
+                pressedScale={1}
+                pressedStyle={{ opacity: 0.6 }}
+                style={{ alignSelf: 'center', paddingTop: 14 }}
+            >
+                <Text style={{ color: withAlpha(ink, 0.85), fontSize: 13, fontWeight: '600', textDecorationLine: 'underline' }}>
+                    {hasStarted ? 'Didn’t make it?' : 'Can’t make it?'}
+                </Text>
+            </PressableScale>
         </View>
     );
 }

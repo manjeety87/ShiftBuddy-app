@@ -128,16 +128,20 @@ export default function HomeScreen() {
     });
   }, [weekShifts, weekDays]);
 
-  // What the top card is about: a shift that has started and isn't clocked in yet, else the next one to come
+  // What the top card is about: a shift that has started and isn't clocked in yet, else the next one to come.
+  // Missed shifts never: the user isn't going.
   const startedShift = upcomingShifts?.find(
     (shift) =>
+      !shift.missedReason &&
       Date.parse(shift.startTime) <= now &&
       Date.parse(shift.endTime) > now &&
       shift.id !== clockedIn?.shiftId,
   );
   const nextShift =
     startedShift ??
-    upcomingShifts?.find((shift) => Date.parse(shift.startTime) > now);
+    upcomingShifts?.find(
+      (shift) => !shift.missedReason && Date.parse(shift.startTime) > now,
+    );
 
   const weekLabel = (offsetDays: number) => {
     const move = (d: Date) =>

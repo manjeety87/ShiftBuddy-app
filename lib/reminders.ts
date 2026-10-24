@@ -189,7 +189,8 @@ const syncReminders = async () => {
     if (!settings.enabled && !settings.wakeUp.enabled) return;
     if (!(await notifications.getPermissionsAsync()).granted) return;
 
-    const shifts = await getUpcomingShifts();
+    // Nothing to remind about for a shift the user won't be going to
+    const shifts = (await getUpcomingShifts()).filter((shift) => !shift.missedReason);
     const now = Date.now();
 
     const reminders: Scheduled[] = settings.enabled

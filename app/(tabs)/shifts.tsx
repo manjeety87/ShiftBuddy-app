@@ -12,7 +12,8 @@ import { spacing } from '../../constants/themes';
 import type { Shift } from '../../interfaces/shift.d';
 import { startOfDay } from '../../lib/daySegments';
 import { formatDuration } from '../../lib/shiftTime';
-import { getMyShifts } from '../../lib/shifts';
+import { getMyShifts, getShiftsSummary } from '../../lib/shifts';
+import { describeMissedCounts } from '../../lib/missedShifts';
 import { useTheme } from '../../lib/theme-context';
 import { useFetch } from '../../lib/useFetch';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
@@ -20,7 +21,7 @@ import { deleteShiftsWithUndo } from '../../lib/shiftActions';
 import { useShiftsChanged } from '../../lib/shiftEvents';
 import { useTimesheetChanged } from '../../lib/timesheet';
 
-type ListMode = 'upcoming' | 'past';
+type ListMode = 'upcoming' | 'past' | 'missed';
 
 const PAST_DAYS = 90; // history long enough for a few pay periods
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -54,7 +55,8 @@ const groupByDay = (shifts: Shift[]): DaySection[] => {
             sections.push(section);
         }
         section.data.push(shift);
-        section.minutes += Math.round((Date.parse(shift.endTime) - Date.parse(shift.startTime)) / 60000);
+        // A missed shift is listed but adds nothing to the day's hours
+        if (!shift.missedReason) section.minutes += Math.round((Date.parse(shift.endTime) - Date.parse(shift.startTime)) / 60000);
     }
     return sections;
 };
@@ -70,25 +72,34 @@ export default function ShiftsScreen() {
         return () => clearInterval(timer);
     }, []);
 
-    // Upcoming starts a day back so a shift that's already under way still shows (as "Now")
+    // Upcoming starts a day back so a shift that's already under way still shows (as "Now").
+    // Missed: this calendar year, ahead too (a shift already called off).
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
     const { data: shifts, isLoading, isRefreshing, error, refetch, refresh } = useFetch(() => {
         const now = Date.now();
+        if (mode === 'missed') return getMyShifts({ from: yearStart });
         return mode === 'upcoming'
             ? getMyShifts({ from: new Date(now - DAY_MS).toISOString() })
             : getMyShifts({ from: new Date(now - PAST_DAYS * DAY_MS).toISOString(), to: new Date(now).toISOString() });
     }, [mode]);
+    // The counts come from the backend's summary, the same numbers the web app shows
+    const missedSummary = useFetch(() => (mode === 'missed' ? getShiftsSummary({ from: yearStart }) : Promise.resolve(null)), [mode]);
 
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
 
-    useFocusEffect(useCallback(() => { setNow(Date.now()); refetch(); }, [refetch]));
-    useShiftsChanged(refetch);
+    const refetchSummary = missedSummary.refetch;
+    useFocusEffect(useCallback(() => { setNow(Date.now()); refetch(); refetchSummary(); }, [refetch, refetchSummary]));
+    useShiftsChanged(() => { refetch(); refetchSummary(); });
     useTimesheetChanged(refetch); // hours added or changed from a past shift show up on its row
 
     const visible = useMemo(() => {
-        const list = (shifts ?? []).filter((s) => (mode === 'upcoming' ? Date.parse(s.endTime) > now : Date.parse(s.endTime) <= now));
-        return mode === 'past' ? [...list].reverse() : list; // past: most recent first
+        const all = shifts ?? [];
+        const list = mode === 'missed'
+            ? all.filter((s) => s.missedReason)
+            : all.filter((s) => (mode === 'upcoming' ? Date.parse(s.endTime) > now : Date.parse(s.endTime) <= now));
+        return mode === 'upcoming' ? list : [...list].reverse(); // past and missed: most recent first
     }, [shifts, mode, now]);
     const sections = useMemo(() => groupByDay(visible), [visible]);
 
@@ -173,7 +184,7 @@ export default function ShiftsScreen() {
 
                 <View style={{ marginBottom: spacing.md }}>
                     <SegmentedControl
-                        options={[{ value: 'upcoming', label: 'Upcoming' }, { value: 'past', label: 'Past' }]}
+                        options={[{ value: 'upcoming', label: 'Upcoming' }, { value: 'past', label: 'Past' }, { value: 'missed', label: 'Missed' }]}
                         value={mode}
                         onChange={switchMode}
                         accessibilityLabel="Which shifts"
@@ -216,17 +227,30 @@ export default function ShiftsScreen() {
                                 </>
                             );
                         }}
+                        ListHeaderComponent={
+                            mode === 'missed' && missedSummary.data && missedSummary.data.missed.total > 0 ? (
+                                <ThemedText variant="secondary" size="sm" style={{ marginBottom: spacing.sm }}>
+                                    {describeMissedCounts(missedSummary.data.missed, 'this year')}
+                                </ThemedText>
+                            ) : null
+                        }
                         ListEmptyComponent={
                             <View style={{ alignItems: 'center', marginTop: 64, gap: spacing.md }}>
                                 <CalendarClock color={colors.textMuted} size={44} />
                                 <ThemedText variant="muted" style={{ textAlign: 'center' }}>
-                                    {mode === 'upcoming' ? 'No upcoming shifts. Tap + to add one, or scan a schedule.' : `No shifts in the last ${PAST_DAYS} days.`}
+                                    {mode === 'upcoming'
+                                        ? 'No upcoming shifts. Tap + to add one, or scan a schedule.'
+                                        : mode === 'missed'
+                                          ? 'No missed shifts this year. Sick, or called off? Tap “Can’t make it?” on Home, or open the shift.'
+                                          : `No shifts in the last ${PAST_DAYS} days.`}
                                 </ThemedText>
                             </View>
                         }
                         ListFooterComponent={
-                            mode === 'past' && visible.length > 0 ? (
-                                <ThemedText variant="muted" size="xs" style={{ textAlign: 'center', marginTop: spacing.md }}>Showing the last {PAST_DAYS} days</ThemedText>
+                            visible.length > 0 && mode !== 'upcoming' ? (
+                                <ThemedText variant="muted" size="xs" style={{ textAlign: 'center', marginTop: spacing.md }}>
+                                    {mode === 'past' ? `Showing the last ${PAST_DAYS} days` : 'Since January 1'}
+                                </ThemedText>
                             ) : null
                         }
                         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={colors.primary} />}

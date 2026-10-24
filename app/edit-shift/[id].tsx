@@ -1,14 +1,17 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { Copy, Navigation, Trash2 } from 'lucide-react-native';
+import { CalendarX, Copy, Navigation, Trash2 } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { JobPicker } from '../../components/JobPicker';
 import { ShiftHoursRow } from '../../components/ShiftHoursRow';
 import { ShiftTimeFields } from '../../components/ShiftTimeFields';
 import { IconActionBar } from '../../components/ui/IconActionBar';
+import { ListRow } from '../../components/ui/ListRow';
 import { SheetHeader } from '../../components/ui/SheetHeader';
 import { ThemedText } from '../../components/ui/ThemedText';
-import { spacing } from '../../constants/themes';
+import { radius, spacing } from '../../constants/themes';
+import { missedTag } from '../../lib/missedShifts';
+import { useShiftsChanged } from '../../lib/shiftEvents';
 import { useMyJobs } from '../../lib/useMyJobs';
 import { getShiftById, updateShift } from '../../lib/shifts';
 import { defaultShiftTimes, MIN_SHIFT_MINUTES, resolveShiftRange, toShiftTimes, withDuration, type ShiftTimes } from '../../lib/shiftTime';
@@ -68,10 +71,12 @@ export default function EditShiftScreen() {
         loadShift();
     }, [id]);
 
-    // Hours were added, changed or deleted in the sheet above this one
-    useTimesheetChanged(() => {
-        getShiftById(id).then(setSavedShift).catch(() => undefined); // the row keeps what it showed; the form is untouched
-    });
+    // Hours were added, changed or deleted — or the shift marked missed — in the sheet above this one
+    const reloadSavedShift = () => {
+        getShiftById(id).then(setSavedShift).catch(() => undefined); // the rows keep what they showed; the form is untouched
+    };
+    useTimesheetChanged(reloadSavedShift);
+    useShiftsChanged(reloadSavedShift);
 
     const handleSave = async () => {
         if (!selectedJobId) { showAlert('Missing info', 'Please select a job.'); return; }
@@ -143,8 +148,24 @@ export default function EditShiftScreen() {
                 <ThemedText variant="secondary" size="sm" weight="medium" style={{ marginBottom: 8, marginLeft: 4 }}>NOTES</ThemedText>
                 <ThemedInput value={notes} onChangeText={setNotes} placeholder="Optional — e.g. closing shift" style={{ marginBottom: 32 }} />
 
+                {/* Worked and missed can't both be true (the backend refuses it), so a shift with hours offers no "missed" */}
+                {savedShift && !savedShift.timeEntries?.length && (
+                    <>
+                        <ThemedText variant="secondary" size="sm" weight="medium" style={{ marginBottom: 8, marginLeft: 4 }}>COULDN’T GO?</ThemedText>
+                        <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', marginBottom: 32 }}>
+                            <ListRow
+                                icon={CalendarX}
+                                label={savedShift.missedReason ? missedTag(savedShift.missedReason) : 'Mark as Missed'}
+                                detail={savedShift.missedReason ? savedShift.missedNote ?? 'Not counted toward pay' : 'Sick, called off by your manager…'}
+                                onPress={() => router.push(`/missed-shift/${id}`)}
+                                isFirst
+                            />
+                        </View>
+                    </>
+                )}
+
                 {/* Hours can be added once a shift has begun; ones already clocked (the clock opens 10 minutes early) always show */}
-                {savedShift && (Date.parse(savedShift.startTime) <= openedAt || !!savedShift.timeEntries?.length) && (
+                {savedShift && !savedShift.missedReason && (Date.parse(savedShift.startTime) <= openedAt || !!savedShift.timeEntries?.length) && (
                     <>
                         <ThemedText variant="secondary" size="sm" weight="medium" style={{ marginBottom: 8, marginLeft: 4 }}>HOURS WORKED</ThemedText>
                         <View style={{ marginBottom: 32 }}>

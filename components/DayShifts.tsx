@@ -8,6 +8,7 @@ import { withAlpha } from '../lib/color';
 import { formatTime, isSameDay, toCalendarDateString } from '../lib/dateUtils';
 import { addDays, segmentsForDay, startOfDay } from '../lib/daySegments';
 import { jobName, jobRole } from '../lib/jobLabels';
+import { missedTag } from '../lib/missedShifts';
 import { motion } from '../lib/motion';
 import { formatDuration } from '../lib/shiftTime';
 import { useTheme } from '../lib/theme-context';
@@ -34,7 +35,9 @@ export function DayShifts({ day, shifts, onPressShift }: DayShiftsProps) {
     const now = useNow();
     const segments = segmentsForDay(shifts, day);
     const isPastDay = addDays(startOfDay(day), 1).getTime() <= now;
-    const workedMinutes = segments.reduce((sum, s) => sum + Math.round((s.end.getTime() - s.start.getTime()) / 60000), 0);
+    // The day's total is what will actually be worked: missed shifts stay listed but don't add up
+    const counted = segments.filter((s) => !s.shift.missedReason);
+    const workedMinutes = counted.reduce((sum, s) => sum + Math.round((s.end.getTime() - s.start.getTime()) / 60000), 0);
     const heading = day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
     const empty = emptyDayText(day, isPastDay, isSameDay(day, new Date(now)));
 
@@ -43,9 +46,9 @@ export function DayShifts({ day, shifts, onPressShift }: DayShiftsProps) {
         <Animated.View key={day.toDateString()} entering={motion.swap}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.sm }}>
                 <ThemedText size="lg" weight="bold">{heading}</ThemedText>
-                {segments.length > 0 && (
+                {counted.length > 0 && (
                     <ThemedText variant="secondary" size="sm">
-                        {segments.length} shift{segments.length === 1 ? '' : 's'} · {formatDuration(workedMinutes)}
+                        {counted.length} shift{counted.length === 1 ? '' : 's'} · {formatDuration(workedMinutes)}
                     </ThemedText>
                 )}
             </View>
@@ -71,23 +74,26 @@ export function DayShifts({ day, shifts, onPressShift }: DayShiftsProps) {
             ) : (
                 segments.map(({ shift, continuesFromPreviousDay, continuesToNextDay }) => {
                     const isNow = Date.parse(shift.startTime) <= now && Date.parse(shift.endTime) > now;
+                    const missed = shift.missedReason;
                     return (
                         <PressableScale
                             key={shift.id}
                             onPress={() => onPressShift(shift)}
                             accessibilityRole="button"
                             pressedScale={0.98}
-                            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, borderLeftWidth: 4, borderLeftColor: shift.job.color }}
+                            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, borderLeftWidth: 4, borderLeftColor: shift.job.color, opacity: missed ? 0.65 : 1 }}
                         >
                             <View style={{ flex: 1 }}>
                                 <ThemedText weight="semibold" numberOfLines={1}>{jobName(shift.job)}</ThemedText>
                                 {!!jobRole(shift.job) && <ThemedText variant="secondary" size="sm" numberOfLines={1}>{jobRole(shift.job)}</ThemedText>}
                             </View>
                             <View style={{ alignItems: 'flex-end' }}>
-                                <ThemedText size="sm" weight="medium">
+                                <ThemedText size="sm" weight="medium" style={{ textDecorationLine: missed ? 'line-through' : 'none' }}>
                                     {formatTime(shift.startTime)} – {formatTime(shift.endTime)}
                                 </ThemedText>
-                                {isNow ? (
+                                {missed ? (
+                                    <ThemedText variant="secondary" size="xs" weight="semibold">{missedTag(missed)}</ThemedText>
+                                ) : isNow ? (
                                     <View style={{ marginTop: 2, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.full, backgroundColor: withAlpha(colors.success, 0.15) }}>
                                         <ThemedText size="xs" weight="semibold" color={colors.success}>Now</ThemedText>
                                     </View>
