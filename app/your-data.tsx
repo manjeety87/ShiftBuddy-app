@@ -1,38 +1,21 @@
 import { router } from 'expo-router';
 import { Download, Trash2, Users, type LucideIcon } from 'lucide-react-native';
-import { useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { PressableScale } from '../components/ui/PressableScale';
 import { SheetHeader } from '../components/ui/SheetHeader';
 import { ThemedText } from '../components/ui/ThemedText';
 import { radius, spacing } from '../constants/themes';
-import { shareMyData } from '../lib/exportData';
-import { notify } from '../lib/notify';
 import { useTheme } from '../lib/theme-context';
 
-/** Your data is yours: take a copy, choose who sees it, or delete it. */
+/** Your data is yours: keep a record, choose who sees it, or delete it. */
 export default function YourDataScreen() {
     const { colors } = useTheme();
-    const [isExporting, setIsExporting] = useState(false);
-
-    const download = async () => {
-        setIsExporting(true);
-        try {
-            await shareMyData();
-        } catch (err: any) {
-            notify.error('Couldn’t prepare your data', { description: err?.response?.data?.message ?? err?.message });
-        } finally {
-            setIsExporting(false);
-        }
-    };
-
-    const row = (icon: LucideIcon, title: string, detail: string, onPress: () => void, options: { isFirst?: boolean; danger?: boolean; busy?: boolean } = {}) => {
+    const row = (icon: LucideIcon, title: string, detail: string, onPress: () => void, options: { isFirst?: boolean; danger?: boolean } = {}) => {
         const Icon = icon;
         const tint = options.danger ? colors.danger : colors.textPrimary;
         return (
             <PressableScale
                 onPress={onPress}
-                disabled={options.busy}
                 accessibilityRole="button"
                 pressedScale={1}
                 pressedStyle={{ backgroundColor: colors.surfaceLight }}
@@ -43,7 +26,6 @@ export default function YourDataScreen() {
                     <ThemedText weight="medium" color={tint}>{title}</ThemedText>
                     <ThemedText variant="secondary" size="xs">{detail}</ThemedText>
                 </View>
-                {options.busy && <ActivityIndicator color={colors.primary} />}
             </PressableScale>
         );
     };
@@ -52,9 +34,9 @@ export default function YourDataScreen() {
         <View style={{ flex: 1, backgroundColor: colors.background }}>
             <SheetHeader title="Your Data" onCancel={() => router.back()} onSave={() => router.back()} saveLabel="Done" hideCancel />
             <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xl }}>
-                <ThemedText variant="secondary" style={{ marginBottom: spacing.md, marginLeft: 4 }}>It’s yours: take a copy, choose who sees it, or delete it.</ThemedText>
+                <ThemedText variant="secondary" style={{ marginBottom: spacing.md, marginLeft: 4 }}>It’s yours: keep a record, choose who sees it, or delete it.</ThemedText>
                 <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', marginBottom: spacing.lg }}>
-                    {row(Download, 'Download your data', 'Your profile, jobs, shifts, hours and sharing, as a file you can save or send.', download, { isFirst: true, busy: isExporting })}
+                    {row(Download, 'Shift statement', 'Every shift you worked for a week, a month, three months or any dates, as a PDF.', () => router.push('/statement'), { isFirst: true })}
                     {row(Users, 'Who sees your schedule', 'People you share your shifts with, and for how long.', () => router.push('/sharing'))}
                 </View>
 
