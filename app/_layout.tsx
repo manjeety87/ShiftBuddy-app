@@ -47,6 +47,7 @@ const SHEET_ROUTES = [
   'timesheet',
   'edit-time-entry/[id]',
   'welcome',
+  'assistant',
 ] as const;
 
 // iOS gets its native card sheet (slides up, swipe/slides down to dismiss).
