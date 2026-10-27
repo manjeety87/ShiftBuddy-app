@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 
-const DEPLOYED_API_URL = 'https://shiftbuddy-backend.onrender.com/api';
+const DEPLOYED_API_URL = 'https://shiftbuddy-api.onrender.com/api';
 const LOCAL_API_PORT = 5000;
 
 /**
