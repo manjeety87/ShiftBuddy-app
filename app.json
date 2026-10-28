@@ -68,8 +68,11 @@
       "expo-sharing",
       [
         "expo-audio",
-        { "microphonePermission": "ShiftBuddy listens while you talk to the assistant, to add or change your shifts." }
-      ]
+        {
+          "microphonePermission": "ShiftBuddy listens while you talk to the assistant, to add or change your shifts."
+        }
+      ],
+      "expo-asset"
     ],
     "extra": {
       "router": {},
