@@ -60,6 +60,8 @@ const errorText = (err: any) => err?.response?.data?.message ?? 'Couldn’t reac
 
 /** What a Save on the card did, said the way the button said it */
 const savedText = (saved: Saved) => {
+    if (saved.type === 'editShift') return 'Shift changed.';
+    if (saved.type === 'removeShifts') return saved.count === 1 ? 'Shift removed.' : `${saved.count} shifts removed.`;
     if (saved.type === 'markMissed') return 'Marked as missed.';
     if (saved.type === 'logHours') return 'Hours added.';
     const added = saved.count === 1 ? 'Shift added.' : `${saved.count} shifts added.`;
@@ -239,7 +241,8 @@ export default function AssistantScreen() {
         const saved = message.saved;
         if (!saved) return;
         try {
-            if (saved.type === 'addShifts') await Promise.all(saved.shiftIds.map(deleteShift));
+            if (saved.undo) await confirmProposal(saved.undo);
+            else if (saved.type === 'addShifts') await Promise.all(saved.shiftIds.map(deleteShift));
             else if (saved.type === 'markMissed') await clearShiftMissed(saved.shiftIds[0]);
             else if (saved.entryId) await deleteTimeEntry(saved.entryId);
             setMessages((list) => list.map((line) => (line.id === message.id ? { ...line, undone: true } : line)));

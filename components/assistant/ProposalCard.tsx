@@ -16,25 +16,60 @@ const minutesBetween = (start: string, end: string) => Math.round((new Date(end)
 /** The button says what will happen, and the reply after it uses the same verb */
 export const saveLabel = (proposal: Proposal) => {
     if (proposal.type === 'addShifts') return proposal.shifts.length === 1 ? 'Add Shift' : `Add ${proposal.shifts.length} Shifts`;
+    if (proposal.type === 'editShift') return 'Change Shift';
+    if (proposal.type === 'removeShifts') return proposal.shiftIds.length === 1 ? 'Remove Shift' : `Remove ${proposal.shiftIds.length} Shifts`;
     return proposal.type === 'markMissed' ? 'Mark Missed' : 'Add Hours';
 };
 
-function ShiftLine({ jobName, role, color, startTime, endTime, detail }: { jobName: string; role: string | null; color: string; startTime: string; endTime: string; detail?: string }) {
+// The line a change replaces, or a shift about to go: struck through
+const STRUCK = { textDecorationLine: 'line-through' } as const;
+
+function ShiftLine({ jobName, role, color, startTime, endTime, detail, muted }: { jobName: string; role: string | null; color: string; startTime: string; endTime: string; detail?: string; muted?: boolean }) {
+    const struck = muted ? STRUCK : undefined;
     return (
         <View style={{ flexDirection: 'row', gap: spacing.sm + 4, paddingVertical: 6 }}>
-            <View style={{ width: 4, borderRadius: 2, backgroundColor: color }} />
+            <View style={{ width: 4, borderRadius: 2, backgroundColor: color, opacity: muted ? 0.45 : 1 }} />
             <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm }}>
-                    <ThemedText weight="semibold">{formatDate(startTime)}</ThemedText>
-                    <ThemedText variant="secondary" size="sm">{formatDuration(minutesBetween(startTime, endTime))}</ThemedText>
+                    <ThemedText weight="semibold" variant={muted ? 'secondary' : undefined} style={struck}>
+                        {formatDate(startTime)}
+                    </ThemedText>
+                    <ThemedText variant="secondary" size="sm" style={struck}>
+                        {formatDuration(minutesBetween(startTime, endTime))}
+                    </ThemedText>
                 </View>
-                <ThemedText>{formatTime(startTime)} – {formatTime(endTime)}</ThemedText>
+                <ThemedText variant={muted ? 'secondary' : undefined} style={struck}>
+                    {formatTime(startTime)} – {formatTime(endTime)}
+                </ThemedText>
                 <ThemedText variant="secondary" size="sm" numberOfLines={1}>
                     {jobName}
                     {role ? ` · ${role}` : ''}
                     {detail ? ` · ${detail}` : ''}
                 </ThemedText>
             </View>
+        </View>
+    );
+}
+
+const TITLES: { [Type in Proposal['type']]: (proposal: Proposal) => string } = {
+    addShifts: (proposal) => (proposal.type === 'addShifts' && proposal.shifts.length > 1 ? `${proposal.shifts.length} new shifts` : 'New shift'),
+    editShift: () => 'Change shift',
+    removeShifts: (proposal) => (proposal.type === 'removeShifts' && proposal.shiftIds.length > 1 ? `Remove ${proposal.shiftIds.length} shifts` : 'Remove from schedule'),
+    markMissed: () => 'Mark as missed',
+    logHours: () => 'Hours worked',
+};
+
+const clashText = (overlaps: { jobName: string; startTime: string; endTime: string }[]) =>
+    `Overlaps ${overlaps.map((shift) => `${shift.jobName}, ${formatTime(shift.startTime)} – ${formatTime(shift.endTime)}`).join(' and ')}.`;
+
+function Clash({ text }: { text: string }) {
+    const { colors } = useTheme();
+    return (
+        <View style={{ flexDirection: 'row', gap: spacing.sm, backgroundColor: colors.warning + '22', borderRadius: radius.sm, padding: spacing.sm }}>
+            <TriangleAlert color={colors.warning} size={16} />
+            <ThemedText size="sm" style={{ flex: 1 }}>
+                {text}
+            </ThemedText>
         </View>
     );
 }
@@ -46,7 +81,7 @@ function ShiftLine({ jobName, role, color, startTime, endTime, detail }: { jobNa
  */
 export function ProposalCard({ proposal, busy, listening, onSave, onDismiss }: { proposal: Proposal; busy: boolean; listening: boolean; onSave: () => void; onDismiss: () => void }) {
     const { colors } = useTheme();
-    const title = proposal.type === 'addShifts' ? (proposal.shifts.length === 1 ? 'New shift' : `${proposal.shifts.length} new shifts`) : proposal.type === 'markMissed' ? 'Mark as missed' : 'Hours worked';
+    const title = TITLES[proposal.type](proposal);
 
     return (
         <Animated.View entering={motion.appear} style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm }} accessibilityLabel={title}>
@@ -62,16 +97,26 @@ export function ProposalCard({ proposal, busy, listening, onSave, onDismiss }: {
                         ))}
                     </ScrollView>
                     {proposal.preview.overlaps.length > 0 && (
-                        <View style={{ flexDirection: 'row', gap: spacing.sm, backgroundColor: colors.warning + '22', borderRadius: radius.sm, padding: spacing.sm }}>
-                            <TriangleAlert color={colors.warning} size={16} />
-                            <ThemedText size="sm" style={{ flex: 1 }}>
-                                {proposal.shifts.length === 1
-                                    ? `Overlaps ${proposal.preview.overlaps.map((shift) => `${shift.jobName}, ${formatTime(shift.startTime)} – ${formatTime(shift.endTime)}`).join(' and ')}. Saving keeps both.`
-                                    : 'Some of these clash with shifts you already have; those are skipped.'}
-                            </ThemedText>
-                        </View>
+                        <Clash text={proposal.shifts.length === 1 ? `${clashText(proposal.preview.overlaps)} Saving keeps both.` : 'Some of these clash with shifts you already have; those are skipped.'} />
                     )}
                 </>
+            )}
+
+            {proposal.type === 'editShift' && (
+                <>
+                    {/* Was → will be: the old line struck through, so the change reads at a glance */}
+                    <ShiftLine {...proposal.preview.before} detail="Now" muted />
+                    <ShiftLine {...proposal.preview.after} detail="Changes to" />
+                    {proposal.preview.overlaps.length > 0 && <Clash text={`${clashText(proposal.preview.overlaps)} Saving keeps both.`} />}
+                </>
+            )}
+
+            {proposal.type === 'removeShifts' && (
+                <ScrollView style={{ maxHeight: 190 }} nestedScrollEnabled>
+                    {proposal.preview.shifts.map((shift) => (
+                        <ShiftLine key={shift.startTime} {...shift} detail={shift.missed ? 'Missed' : undefined} muted />
+                    ))}
+                </ScrollView>
             )}
 
             {proposal.type === 'markMissed' && <ShiftLine {...proposal.preview} detail={MISSED_REASONS.find((option) => option.value === proposal.reason)?.short} />}
