@@ -18,6 +18,9 @@ export const saveLabel = (proposal: Proposal) => {
     if (proposal.type === 'addShifts') return proposal.shifts.length === 1 ? 'Add Shift' : `Add ${proposal.shifts.length} Shifts`;
     if (proposal.type === 'editShift') return 'Change Shift';
     if (proposal.type === 'removeShifts') return proposal.shiftIds.length === 1 ? 'Remove Shift' : `Remove ${proposal.shiftIds.length} Shifts`;
+    if (proposal.type === 'addJob') return 'Add Job';
+    if (proposal.type === 'editJob') return 'Change Job';
+    if (proposal.type === 'deleteJob') return 'Delete Job';
     return proposal.type === 'markMissed' ? 'Mark Missed' : 'Add Hours';
 };
 
@@ -51,12 +54,33 @@ function ShiftLine({ jobName, role, color, startTime, endTime, detail, muted }: 
     );
 }
 
+function JobLine({ jobName, role, color, detail, muted }: { jobName: string; role: string | null; color: string; detail?: string; muted?: boolean }) {
+    const struck = muted ? STRUCK : undefined;
+    return (
+        <View style={{ flexDirection: 'row', gap: spacing.sm + 4, paddingVertical: 6 }}>
+            <View style={{ width: 4, borderRadius: 2, backgroundColor: color, opacity: muted ? 0.45 : 1 }} />
+            <View style={{ flex: 1 }}>
+                <ThemedText weight="semibold" variant={muted ? 'secondary' : undefined} style={struck} numberOfLines={1}>
+                    {jobName}
+                </ThemedText>
+                <ThemedText variant="secondary" size="sm" numberOfLines={1}>
+                    {role ?? 'No role'}
+                    {detail ? ` · ${detail}` : ''}
+                </ThemedText>
+            </View>
+        </View>
+    );
+}
+
 const TITLES: { [Type in Proposal['type']]: (proposal: Proposal) => string } = {
     addShifts: (proposal) => (proposal.type === 'addShifts' && proposal.shifts.length > 1 ? `${proposal.shifts.length} new shifts` : 'New shift'),
     editShift: () => 'Change shift',
     removeShifts: (proposal) => (proposal.type === 'removeShifts' && proposal.shiftIds.length > 1 ? `Remove ${proposal.shiftIds.length} shifts` : 'Remove from schedule'),
     markMissed: () => 'Mark as missed',
     logHours: () => 'Hours worked',
+    addJob: () => 'New job',
+    editJob: () => 'Change job',
+    deleteJob: () => 'Delete job',
 };
 
 const clashText = (overlaps: { jobName: string; startTime: string; endTime: string }[]) =>
@@ -128,6 +152,27 @@ export function ProposalCard({ proposal, busy, listening, onSave, onDismiss }: {
                     endTime={proposal.preview.clockOut}
                     detail={`${proposal.preview.breakMinutes ? `${proposal.preview.breakMinutes} min break · ` : ''}${formatDuration(proposal.preview.paidMinutes)} paid`}
                 />
+            )}
+
+            {proposal.type === 'addJob' && <JobLine {...proposal.preview} />}
+
+            {proposal.type === 'editJob' && (
+                <>
+                    <JobLine {...proposal.preview.before} detail="Now" muted />
+                    <JobLine {...proposal.preview.after} detail="Changes to" />
+                </>
+            )}
+
+            {proposal.type === 'deleteJob' && (
+                <>
+                    <JobLine {...proposal.preview} muted />
+                    {/* Deleting takes the upcoming shifts too: said before the yes, not after */}
+                    {proposal.preview.upcomingShifts > 0 && (
+                        <Clash
+                            text={`${proposal.preview.upcomingShifts === 1 ? 'Its 1 upcoming shift is removed too.' : `Its ${proposal.preview.upcomingShifts} upcoming shifts are removed too.`} Worked shifts stay in your history.`}
+                        />
+                    )}
+                </>
             )}
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xs }}>

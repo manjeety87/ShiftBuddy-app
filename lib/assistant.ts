@@ -1,13 +1,15 @@
 import type { MissedReason } from '../interfaces/shift.d';
 import { api } from './api';
 import { deviceTimeZone } from './dateUtils';
+import { emitJobsChanged } from './jobs';
 import { requestReminderSync } from './reminders';
 import { emitShiftsChanged } from './shiftEvents';
 import { emitTimesheetChanged } from './timesheet';
 
 // The assistant: the person says (or types) something, the backend asks Gemini what
-// it means and answers with words, a card to confirm, and places to open. Nothing
-// is saved until a yes — by voice ("haan, add kardo") or the card's Save button.
+// it means and answers with words, what it saved (with Undo), a card to confirm, and
+// places to open. Adds and edits save at once; deleting waits for a yes — by voice
+// ("haan, kardo") or the card's button.
 
 /** A job as a card draws it */
 interface JobBadge {
@@ -46,15 +48,20 @@ export type Proposal =
           clockOut: string;
           breakMinutes?: number;
           preview: JobBadge & Timed & { clockIn: string; clockOut: string; breakMinutes: number; paidMinutes: number };
-      };
+      }
+    | { type: 'addJob'; job: { companyName: string; title: string; hourlyRate?: number; color?: string }; preview: JobBadge }
+    | { type: 'editJob'; jobId: string; changes: Record<string, unknown>; preview: { before: JobBadge; after: JobBadge } }
+    | { type: 'deleteJob'; jobId: string; preview: JobBadge & { upcomingShifts: number } };
 
 export interface Saved {
-    type: Proposal['type'];
+    /** restoreJob: an Undo of deleteJob */
+    type: Proposal['type'] | 'restoreJob';
     count: number;
     shiftIds: string[];
     /** Several shifts at once: the ones that clashed and were left out */
     skipped: number;
     entryId?: string;
+    jobId?: string;
     /** A change or removal: what puts it back (sent to /assistant/confirm) */
     undo?: Record<string, unknown>;
 }
@@ -70,6 +77,8 @@ export type AssistantAction =
 
 export interface AssistantTurn {
     reply: string;
+    /** A Hinglish reply in Devanagari, for a Hindi voice to read (Roman Hindi sounds wrong in any voice) */
+    speech: string | null;
     /** The card waiting after this turn (null: none) */
     pending: Proposal | null;
     actions: AssistantAction[];
@@ -87,9 +96,11 @@ export const MAX_HISTORY = 12;
 /** Lists, reminders and the timesheet catch up with what a confirmed card changed */
 const announce = (saved: Saved | null) => {
     if (!saved) return;
+    // A deleted or restored job takes its upcoming shifts with it
     emitShiftsChanged();
     requestReminderSync();
     if (saved.type === 'logHours') emitTimesheetChanged();
+    if (saved.type.endsWith('Job')) emitJobsChanged();
 };
 
 interface TurnInput {

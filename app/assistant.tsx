@@ -64,6 +64,10 @@ const savedText = (saved: Saved) => {
     if (saved.type === 'removeShifts') return saved.count === 1 ? 'Shift removed.' : `${saved.count} shifts removed.`;
     if (saved.type === 'markMissed') return 'Marked as missed.';
     if (saved.type === 'logHours') return 'Hours added.';
+    if (saved.type === 'addJob') return 'Job added.';
+    if (saved.type === 'editJob') return 'Job changed.';
+    if (saved.type === 'deleteJob') return 'Job deleted.';
+    if (saved.type === 'restoreJob') return 'Job is back.';
     const added = saved.count === 1 ? 'Shift added.' : `${saved.count} shifts added.`;
     return saved.skipped ? `${added} ${saved.skipped} clashed with shifts you have and ${saved.skipped === 1 ? 'was' : 'were'} skipped.` : added;
 };
@@ -138,7 +142,7 @@ export default function AssistantScreen() {
         add({ role: 'assistant', text: turn.reply, saved: saved ?? undefined });
         setPending(turn.pending);
         if (runActions(turn.actions)) return;
-        await say(turn.reply);
+        await say(turn.speech ?? turn.reply);
         setPhase('idle');
         if (live.current.handsFree && !closed.current) listenAgain.current();
     };
