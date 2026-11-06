@@ -21,7 +21,8 @@ export const saveLabel = (proposal: Proposal) => {
     if (proposal.type === 'addJob') return 'Add Job';
     if (proposal.type === 'editJob') return 'Change Job';
     if (proposal.type === 'deleteJob') return 'Delete Job';
-    return proposal.type === 'markMissed' ? 'Mark Missed' : 'Add Hours';
+    if (proposal.type === 'logHours') return proposal.entries.some((entry) => entry.entryId) ? 'Save Hours' : 'Add Hours';
+    return 'Mark Missed';
 };
 
 // The line a change replaces, or a shift about to go: struck through
@@ -54,6 +55,45 @@ function ShiftLine({ jobName, role, color, startTime, endTime, detail, muted }: 
     );
 }
 
+const timeSpan = (start: string, end: string) => `${formatTime(start)} – ${formatTime(end)}`;
+
+/**
+ * One day's hours. The paid time leads, because it is the number the person said
+ * ("8 hours 12 minutes"); clock-out and break are how it got there. Hours being
+ * replaced sit under it, struck through.
+ */
+function HoursLine({ entry }: { entry: Extract<Proposal, { type: 'logHours' }>['preview']['entries'][number] }) {
+    return (
+        <View style={{ flexDirection: 'row', gap: spacing.sm + 4, paddingVertical: 6 }}>
+            <View style={{ width: 4, borderRadius: 2, backgroundColor: entry.color }} />
+            <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: spacing.sm }}>
+                    <ThemedText weight="semibold">{formatDate(entry.startTime)}</ThemedText>
+                    <ThemedText weight="semibold" size="lg">
+                        {formatDuration(entry.paidMinutes)} paid
+                    </ThemedText>
+                </View>
+                <ThemedText variant="secondary">
+                    {timeSpan(entry.clockIn, entry.clockOut)}
+                    {entry.breakMinutes ? ` · ${entry.breakMinutes} min break` : ' · no break'}
+                </ThemedText>
+                {entry.before && (
+                    <ThemedText variant="secondary" size="sm">
+                        Replaces{' '}
+                        <ThemedText variant="secondary" size="sm" style={STRUCK}>
+                            {entry.before.paidMinutes == null ? `${formatTime(entry.before.clockIn)}, still clocked in` : `${formatDuration(entry.before.paidMinutes)} · ${timeSpan(entry.before.clockIn, entry.before.clockOut)}`}
+                        </ThemedText>
+                    </ThemedText>
+                )}
+                <ThemedText variant="secondary" size="sm" numberOfLines={1}>
+                    {entry.jobName}
+                    {entry.role ? ` · ${entry.role}` : ''}
+                </ThemedText>
+            </View>
+        </View>
+    );
+}
+
 function JobLine({ jobName, role, color, detail, muted }: { jobName: string; role: string | null; color: string; detail?: string; muted?: boolean }) {
     const struck = muted ? STRUCK : undefined;
     return (
@@ -77,7 +117,7 @@ const TITLES: { [Type in Proposal['type']]: (proposal: Proposal) => string } = {
     editShift: () => 'Change shift',
     removeShifts: (proposal) => (proposal.type === 'removeShifts' && proposal.shiftIds.length > 1 ? `Remove ${proposal.shiftIds.length} shifts` : 'Remove from schedule'),
     markMissed: () => 'Mark as missed',
-    logHours: () => 'Hours worked',
+    logHours: (proposal) => (proposal.type === 'logHours' && proposal.entries.length > 1 ? `Hours worked on ${proposal.entries.length} shifts` : 'Hours worked'),
     addJob: () => 'New job',
     editJob: () => 'Change job',
     deleteJob: () => 'Delete job',
@@ -146,12 +186,11 @@ export function ProposalCard({ proposal, busy, listening, onSave, onDismiss }: {
             {proposal.type === 'markMissed' && <ShiftLine {...proposal.preview} detail={MISSED_REASONS.find((option) => option.value === proposal.reason)?.short} />}
 
             {proposal.type === 'logHours' && (
-                <ShiftLine
-                    {...proposal.preview}
-                    startTime={proposal.preview.clockIn}
-                    endTime={proposal.preview.clockOut}
-                    detail={`${proposal.preview.breakMinutes ? `${proposal.preview.breakMinutes} min break · ` : ''}${formatDuration(proposal.preview.paidMinutes)} paid`}
-                />
+                <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled>
+                    {proposal.preview.entries.map((entry) => (
+                        <HoursLine key={entry.startTime} entry={entry} />
+                    ))}
+                </ScrollView>
             )}
 
             {proposal.type === 'addJob' && <JobLine {...proposal.preview} />}

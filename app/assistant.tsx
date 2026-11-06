@@ -20,7 +20,6 @@ import { clearShiftMissed } from '../lib/missedShifts';
 import { motion } from '../lib/motion';
 import { deleteShift } from '../lib/shifts';
 import { useTheme } from '../lib/theme-context';
-import { deleteTimeEntry } from '../lib/timesheet';
 import { useVoiceRecorder } from '../lib/useVoiceRecorder';
 
 interface Message {
@@ -63,7 +62,7 @@ const savedText = (saved: Saved) => {
     if (saved.type === 'editShift') return 'Shift changed.';
     if (saved.type === 'removeShifts') return saved.count === 1 ? 'Shift removed.' : `${saved.count} shifts removed.`;
     if (saved.type === 'markMissed') return 'Marked as missed.';
-    if (saved.type === 'logHours') return 'Hours added.';
+    if (saved.type === 'logHours') return saved.count === 1 ? 'Hours saved.' : `Hours saved for ${saved.count} shifts.`;
     if (saved.type === 'addJob') return 'Job added.';
     if (saved.type === 'editJob') return 'Job changed.';
     if (saved.type === 'deleteJob') return 'Job deleted.';
@@ -248,7 +247,6 @@ export default function AssistantScreen() {
             if (saved.undo) await confirmProposal(saved.undo);
             else if (saved.type === 'addShifts') await Promise.all(saved.shiftIds.map(deleteShift));
             else if (saved.type === 'markMissed') await clearShiftMissed(saved.shiftIds[0]);
-            else if (saved.entryId) await deleteTimeEntry(saved.entryId);
             setMessages((list) => list.map((line) => (line.id === message.id ? { ...line, undone: true } : line)));
         } catch (err) {
             add({ role: 'assistant', text: errorText(err), failed: true });
