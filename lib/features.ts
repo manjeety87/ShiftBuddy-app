@@ -37,7 +37,7 @@ export const CORE_FEATURES = [
 
 // A user saved on the phone before features existed has none: show everything
 // until the next refresh brings the real ones, rather than hide what they use.
-const EVERYTHING_ON: Features = { leaveBy: true, weather: true, timesheet: true, pay: true, sharedOnHome: true, calendarSummary: true, autoHours: false };
+const EVERYTHING_ON: Features = { leaveBy: true, weather: true, timesheet: true, pay: true, sharedOnHome: true, calendarSummary: true, autoHours: false, rememberChats: false };
 
 export const featuresOf = (user: User | null | undefined): Features => user?.features ?? EVERYTHING_ON;
 
