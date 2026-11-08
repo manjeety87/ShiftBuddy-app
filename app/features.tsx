@@ -1,12 +1,13 @@
 import { router } from 'expo-router';
 import { Check, ListChecks, PlayCircle } from 'lucide-react-native';
 import { ScrollView, Switch, View } from 'react-native';
-import { FeatureSwitches } from '../components/FeatureSwitches';
+import { AssistantMemory } from '../components/AssistantMemory';
+import { FeatureSwitches, useFeatureToggle } from '../components/FeatureSwitches';
 import { ListRow } from '../components/ui/ListRow';
 import { SheetHeader } from '../components/ui/SheetHeader';
 import { ThemedText } from '../components/ui/ThemedText';
 import { radius, spacing } from '../constants/themes';
-import { CALENDAR_FEATURES, CORE_FEATURES, EXTRA_FEATURES } from '../lib/features';
+import { ASSISTANT_FEATURES, CALENDAR_FEATURES, CORE_FEATURES, EXTRA_FEATURES } from '../lib/features';
 import { hideGettingStarted, showGettingStarted, useOnboarding } from '../lib/onboarding';
 import { useTheme } from '../lib/theme-context';
 
@@ -17,6 +18,7 @@ import { useTheme } from '../lib/theme-context';
 export default function FeaturesScreen() {
     const { colors } = useTheme();
     const onboarding = useOnboarding();
+    const { features } = useFeatureToggle();
 
     const heading = (label: string) => (
         <ThemedText variant="secondary" size="sm" weight="medium" style={{ marginBottom: 8, marginLeft: 4 }}>{label}</ThemedText>
@@ -48,6 +50,10 @@ export default function FeaturesScreen() {
 
                 {heading('CALENDAR')}
                 <FeatureSwitches items={CALENDAR_FEATURES} />
+
+                {heading('ASSISTANT')}
+                <FeatureSwitches items={ASSISTANT_FEATURES} />
+                {features.rememberChats && <AssistantMemory />}
 
                 {heading('HELP')}
                 <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden' }}>

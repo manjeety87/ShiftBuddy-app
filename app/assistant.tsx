@@ -1,19 +1,20 @@
 import * as Speech from 'expo-speech';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { ArrowUp, Check, Mic, Square, Volume2, VolumeX } from 'lucide-react-native';
+import { ArrowUp, Check, Mic, Square, SquarePen, Volume2, VolumeX } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProposalCard } from '../components/assistant/ProposalCard';
-import { TextButton } from '../components/ui/Button';
+import { useFeatureToggle } from '../components/FeatureSwitches';
+import { Button, TextButton } from '../components/ui/Button';
 import { KeyboardSafeView } from '../components/ui/KeyboardSafeView';
 import { PressableScale } from '../components/ui/PressableScale';
 import { SheetHeader } from '../components/ui/SheetHeader';
 import { ThemedInput } from '../components/ui/ThemedInput';
 import { ThemedText } from '../components/ui/ThemedText';
 import { radius, spacing } from '../constants/themes';
-import { confirmProposal, sendToAssistant, sendVoiceToAssistant, type AssistantAction, type AssistantPage, type AssistantTurn, type HistoryLine, type Proposal, type Saved } from '../lib/assistant';
+import { confirmProposal, getAssistantMemory, keepConversation, sendToAssistant, sendVoiceToAssistant, type AssistantAction, type AssistantPage, type AssistantTurn, type HistoryLine, type KeptLine, type Proposal, type Saved } from '../lib/assistant';
 import { useAuth } from '../lib/auth-context';
 import { keyValueStore } from '../lib/keyValueStore';
 import { clearShiftMissed } from '../lib/missedShifts';
@@ -39,8 +40,12 @@ const VOICE_KEY = 'assistantVoice';
 
 // The conversation outlives the sheet: "show my Friday shift" closes it to open the
 // shift, and opening it again carries on. One person's conversation never shows for the next.
+// Across app launches it's kept only with Remember assistant chats on (on the account).
 let memory: { userId: string; messages: Message[]; pending: Proposal | null } | null = null;
-let nextId = 1;
+// Whether the account's kept conversation was already read in this app launch
+let memoryLoadedFor: string | null = null;
+// The kept conversation is written once things settle, not on every line of a reply
+const KEEP_DELAY_MS = 1500;
 
 const TABS: Partial<Record<AssistantPage, Href>> = { home: '/(tabs)', shifts: '/(tabs)/shifts', calendar: '/(tabs)/calendar', jobs: '/(tabs)/jobs', settings: '/(tabs)/settings' };
 const SHEETS: Record<string, Href> = {
@@ -92,6 +97,10 @@ export default function AssistantScreen() {
     const [voice, setVoice] = useState<'on' | 'off'>('on');
     const [saving, setSaving] = useState(false);
     const [draft, setDraft] = useState('');
+    const { features, toggle: setFeature } = useFeatureToggle();
+    const remember = features.rememberChats;
+    // What the account keeps: read once per launch, and whether they ever chose (asked once if not)
+    const [keptState, setKeptState] = useState({ loaded: memoryLoadedFor === user?.id, decided: true });
     const scroller = useRef<ScrollView>(null);
     const closed = useRef(false);
 
@@ -106,7 +115,55 @@ export default function AssistantScreen() {
         keyValueStore.getItem(VOICE_KEY).then((saved) => saved === 'off' && setVoice('off')).catch(() => undefined);
     }, []);
 
-    const add = useCallback((message: Omit<Message, 'id'>) => setMessages((list) => [...list, { ...message, id: nextId++ }]), []);
+    // Ids follow the last line, so lines carried over from another device never collide
+    const add = useCallback((message: Omit<Message, 'id'>) => setMessages((list) => [...list, { ...message, id: (list.at(-1)?.id ?? 0) + 1 }]), []);
+
+    // Carry on where they stopped, when they keep chats (on the account: the web too)
+    useEffect(() => {
+        if (!user || memoryLoadedFor === user.id) return;
+        let cancelled = false;
+        getAssistantMemory()
+            .then((kept) => {
+                if (cancelled) return;
+                memoryLoadedFor = user.id;
+                // Only into an empty conversation: never over what was said since it opened
+                if (kept.messages.length > 0) setMessages((current) => (current.length > 0 ? current : kept.messages));
+                setKeptState({ loaded: true, decided: kept.decided });
+            })
+            .catch(() => {
+                // Can't reach it now: carry on without, and don't ask
+                if (!cancelled) setKeptState({ loaded: true, decided: true });
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [user]);
+
+    useEffect(() => {
+        if (!remember || !keptState.loaded) return;
+        const timer = setTimeout(() => {
+            // Failed lines and a waiting card are never kept
+            const lines: KeptLine[] = messages.filter((line) => !line.failed).map(({ id, role, text, saved, undone }) => ({ id, role, text, saved, undone }));
+            keepConversation(lines).catch(() => {
+                // Not kept this time; the next line tries again
+            });
+        }, KEEP_DELAY_MS);
+        return () => clearTimeout(timer);
+    }, [remember, keptState.loaded, messages]);
+
+    /** The one-time question's answer, which is the feature itself (Settings › Features) */
+    const chooseMemory = (keep: boolean) => {
+        setKeptState((current) => ({ ...current, decided: true }));
+        void setFeature('rememberChats', keep);
+    };
+    const askToRemember = keptState.loaded && !keptState.decided && messages.some((line) => line.role === 'assistant' && !line.failed);
+
+    /** A clean slate: the conversation and the card (and the kept copy, while it's kept) */
+    const startOver = () => {
+        Speech.stop();
+        setPending(null);
+        setMessages([]);
+    };
 
     const historyNow = (): HistoryLine[] => live.current.messages.filter((line) => !line.failed).map(({ role, text }) => ({ role, text }));
 
@@ -290,7 +347,7 @@ export default function AssistantScreen() {
                             Tell me about your shifts.
                         </ThemedText>
                         <ThemedText variant="secondary" style={{ marginTop: spacing.xs }}>
-                            Add one, say you can’t make it, add the hours you worked, or ask me to open something. English or Hinglish, however you talk.
+                            Add one, say you can’t make it, add the hours you worked, or ask me to open something. English, Hinglish or Hindi — however you talk, I answer the same way.
                         </ThemedText>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.lg }}>
                             {EXAMPLES.map((example) => (
@@ -333,6 +390,19 @@ export default function AssistantScreen() {
                         )
                     )
                 )}
+                {askToRemember && phase === 'idle' && (
+                    // Asked once, after the first answer — when they've seen what there would be to keep
+                    <Animated.View entering={motion.appear} style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs }} accessibilityLabel="Remember our chats?">
+                        <ThemedText weight="semibold">Remember our chats next time?</ThemedText>
+                        <ThemedText variant="secondary" size="sm" style={{ lineHeight: 19 }}>
+                            I’d carry on where you stopped, on your phone and the web, and keep short notes so you needn’t repeat yourself. Kept 30 days after your last message; change it any time in Settings › Features.
+                        </ThemedText>
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm }}>
+                            <TextButton label="Not Now" color={colors.textSecondary} weight="medium" onPress={() => chooseMemory(false)} />
+                            <Button label="Remember" onPress={() => chooseMemory(true)} style={{ paddingHorizontal: spacing.md }} />
+                        </View>
+                    </Animated.View>
+                )}
                 {phase === 'thinking' && <ActivityIndicator color={colors.textMuted} style={{ alignSelf: 'flex-start' }} accessibilityLabel="Thinking" />}
             </ScrollView>
 
@@ -347,6 +417,11 @@ export default function AssistantScreen() {
                     <ThemedText size="sm" color={recorder.error ? colors.danger : colors.textSecondary} style={{ flex: 1 }} accessibilityLiveRegion="polite">
                         {status}
                     </ThemedText>
+                    {messages.length > 0 && (
+                        <PressableScale onPress={startOver} accessibilityRole="button" accessibilityLabel="New conversation" hitSlop={10} style={{ padding: 4 }}>
+                            <SquarePen color={colors.textSecondary} size={20} />
+                        </PressableScale>
+                    )}
                     <PressableScale onPress={toggleVoice} accessibilityRole="button" accessibilityLabel={voice === 'on' ? 'Stop reading replies aloud' : 'Read replies aloud'} hitSlop={10} style={{ padding: 4 }}>
                         {voice === 'on' ? <Volume2 color={colors.textSecondary} size={20} /> : <VolumeX color={colors.textSecondary} size={20} />}
                     </PressableScale>

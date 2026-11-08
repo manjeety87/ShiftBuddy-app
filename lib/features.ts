@@ -28,6 +28,15 @@ export const CALENDAR_FEATURES: FeatureInfo[] = [
     { key: 'calendarSummary', title: 'Hours card', detail: 'Shifts and hours for the week or month, with the calendar.' },
 ];
 
+/** What the assistant may keep between conversations */
+export const ASSISTANT_FEATURES: FeatureInfo[] = [
+    {
+        key: 'rememberChats',
+        title: 'Remember assistant chats',
+        detail: 'Carry on where you stopped, on your phone and the web, and let the assistant keep short notes (like “INC = International Clothiers”) so you don’t repeat yourself. Kept 30 days after your last message; switching this off deletes them.',
+    },
+];
+
 /** The app itself — always there, listed so people know what they already have */
 export const CORE_FEATURES = [
     { title: 'Every job, one calendar', detail: 'Type your shifts or scan a photo of the schedule.' },
