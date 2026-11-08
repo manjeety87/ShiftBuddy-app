@@ -14,7 +14,7 @@ import { SheetHeader } from '../components/ui/SheetHeader';
 import { ThemedInput } from '../components/ui/ThemedInput';
 import { ThemedText } from '../components/ui/ThemedText';
 import { radius, spacing } from '../constants/themes';
-import { confirmProposal, getAssistantMemory, keepConversation, sendToAssistant, sendVoiceToAssistant, type AssistantAction, type AssistantPage, type AssistantTurn, type HistoryLine, type KeptLine, type Proposal, type Saved } from '../lib/assistant';
+import { confirmProposal, getAssistantMemory, keepConversation, refreshAfterLostReply, sendToAssistant, transcribeRecording, type AssistantAction, type AssistantPage, type AssistantTurn, type HistoryLine, type KeptLine, type Proposal, type Saved } from '../lib/assistant';
 import { useAuth } from '../lib/auth-context';
 import { keyValueStore } from '../lib/keyValueStore';
 import { clearShiftMissed } from '../lib/missedShifts';
@@ -61,6 +61,8 @@ const SHEETS: Record<string, Href> = {
 };
 
 const errorText = (err: any) => err?.response?.data?.message ?? 'Couldn’t reach ShiftBuddy. Check your connection and try again.';
+/** No answer at all (timeout, dropped connection): the request may still have done its work */
+const isLost = (err: any) => !err?.response;
 
 /** What a Save on the card did, said the way the button said it */
 const savedText = (saved: Saved) => {
@@ -76,8 +78,29 @@ const savedText = (saved: Saved) => {
     return saved.skipped ? `${added} ${saved.skipped} clashed with shifts you have and ${saved.skipped === 1 ? 'was' : 'were'} skipped.` : added;
 };
 
-/** Devanagari is read by a Hindi voice; English and Hinglish in Roman letters by an Indian-English one */
+/** Devanagari (Hindi, and Hinglish replies' `speech`) is read by a Hindi voice; everything else by an English one */
 const voiceLanguageOf = (text: string) => (/[ऀ-ॿ]/.test(text) ? 'hi-IN' : 'en-IN');
+
+// The phone's voices, read once: the best one per language is chosen from them
+let voices: Promise<Speech.Voice[]> | null = null;
+
+/**
+ * The most natural voice the phone has for a language: an Enhanced (downloaded,
+ * neural) voice beats a Default one whatever its region, then the exact region wins.
+ * None for the language: the system picks.
+ */
+const voiceFor = async (language: string) => {
+    voices ??= Speech.getAvailableVoicesAsync().catch(() => []);
+    const base = language.split('-')[0];
+    const score = (voice: Speech.Voice) => {
+        const voiceLanguage = voice.language.replace('_', '-');
+        if (!voiceLanguage.startsWith(base)) return -1;
+        return (voice.quality === Speech.VoiceQuality.Enhanced ? 4 : 0) + (voiceLanguage === language ? 2 : 0);
+    };
+    let best: Speech.Voice | undefined;
+    for (const voice of await voices) if (score(voice) >= 0 && (!best || score(voice) > score(best))) best = voice;
+    return best?.identifier;
+};
 
 /**
  * The assistant: talk or type, and ShiftBuddy adds shifts, marks one missed, adds
@@ -177,7 +200,11 @@ export default function AssistantScreen() {
                 clearTimeout(giveUp);
                 resolve();
             };
-            Speech.speak(text, { language: voiceLanguageOf(text), onDone: done, onStopped: done, onError: done });
+            const language = voiceLanguageOf(text);
+            void voiceFor(language).then((voice) => {
+                if (closed.current) return done();
+                Speech.speak(text, { language, voice, onDone: done, onStopped: done, onError: done });
+            });
         });
 
     const runActions = (actions: AssistantAction[]) => {
@@ -203,8 +230,14 @@ export default function AssistantScreen() {
         if (live.current.handsFree && !closed.current) listenAgain.current();
     };
 
-    const fail = (err: unknown, retry?: string) => {
-        add({ role: 'assistant', text: errorText(err), failed: true, retry });
+    const fail = (err: unknown, retry?: string, cardWaited = false) => {
+        if (isLost(err) && cardWaited) {
+            // A "yes" whose answer got lost may have saved: the card stays gone, the lists refresh
+            refreshAfterLostReply();
+            add({ role: 'assistant', text: 'I didn’t hear back from ShiftBuddy, so that may have saved. Your schedule is up to date — have a look before asking again.', failed: true });
+        } else {
+            add({ role: 'assistant', text: errorText(err), failed: true, retry });
+        }
         // A failing service isn't talked at in a loop: listening waits for a tap
         setHandsFree(false);
         setPhase('idle');
@@ -216,32 +249,41 @@ export default function AssistantScreen() {
         recorder.cancel();
         Speech.stop();
         const history = historyNow();
+        // The card leaves as soon as they answer it; the reply brings the next one, or none
+        const waiting = live.current.pending;
+        setPending(null);
         add({ role: 'user', text: message });
         setDraft('');
         setPhase('thinking');
         try {
-            const turn = await sendToAssistant({ message, history, pending: live.current.pending, page: from });
+            const turn = await sendToAssistant({ message, history, pending: waiting, page: from });
             await finishTurn(turn, turn.saved);
         } catch (err) {
-            fail(err, message);
+            // A refusal changed nothing, so the card comes back; a lost reply may have saved it
+            if (!isLost(err)) setPending(waiting);
+            fail(err, message, waiting !== null);
         }
     };
 
+    /** A recording: written down first (shown as theirs), then sent like a typed message */
     const sendRecording = async (uri: string) => {
         setPhase('thinking');
+        let heard: string;
         try {
-            const turn = await sendVoiceToAssistant(uri, { history: historyNow(), pending: live.current.pending, page: from });
-            if (!('reply' in turn)) {
-                add({ role: 'assistant', text: 'I didn’t catch that — say it again?' });
-                setPhase('idle');
-                if (live.current.handsFree && !closed.current) listenAgain.current();
-                return;
-            }
-            add({ role: 'user', text: turn.heard });
-            await finishTurn(turn, turn.saved);
+            heard = await transcribeRecording(uri);
         } catch (err) {
+            // Nothing reached the assistant yet, so nothing can have saved
             fail(err);
+            return;
         }
+        if (!heard) {
+            add({ role: 'assistant', text: 'I didn’t catch that — say it again?' });
+            setPhase('idle');
+            if (live.current.handsFree && !closed.current) listenAgain.current();
+            return;
+        }
+        // sendText is from the same render, which was idle: its own "thinking" takes over from here
+        await sendText(heard);
     };
 
     const recorder = useVoiceRecorder({ onRecording: (uri) => void sendRecording(uri) });
@@ -407,14 +449,14 @@ export default function AssistantScreen() {
             </ScrollView>
 
             {pending && (
-                <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.sm }}>
+                <Animated.View key={`${pending.type}:${JSON.stringify(pending.preview)}`} exiting={motion.disappear} style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.sm }}>
                     <ProposalCard proposal={pending} busy={saving} listening={recorder.listening} onSave={() => void save()} onDismiss={() => setPending(null)} />
-                </View>
+                </Animated.View>
             )}
 
             <View style={{ borderTopWidth: 1, borderTopColor: colors.surfaceLight, paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: Math.max(insets.bottom, spacing.md), gap: spacing.sm }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                    <ThemedText size="sm" color={recorder.error ? colors.danger : colors.textSecondary} style={{ flex: 1 }} accessibilityLiveRegion="polite">
+                    <ThemedText size="sm" weight={recorder.listening ? 'semibold' : undefined} color={recorder.error ? colors.danger : recorder.listening ? colors.primary : colors.textSecondary} style={{ flex: 1 }} accessibilityLiveRegion="polite">
                         {status}
                     </ThemedText>
                     {messages.length > 0 && (

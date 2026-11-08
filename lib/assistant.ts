@@ -120,23 +120,27 @@ export const sendToAssistant = async (input: TurnInput & { message: string }): P
 };
 
 /**
- * A spoken turn: the phone can't turn speech into text in Expo Go, so the recording
- * goes to the backend, which writes it down and answers. `heard` empty: nothing clear
- * was said, and nothing else came back.
+ * What a recording says, written down by ShiftBuddy in the language it was spoken in
+ * (Expo Go has no speech recognition). Only the words: they show as the person's
+ * message, then go as a normal turn — two short requests, so a slow transcription can
+ * never hide a card that saved. Empty: nothing clear was said.
  */
-export const sendVoiceToAssistant = async (recordingUri: string, input: TurnInput): Promise<(AssistantTurn & { heard: string }) | { heard: '' }> => {
+export const transcribeRecording = async (recordingUri: string): Promise<string> => {
     const form = new FormData();
     form.append('audio', { uri: recordingUri, name: 'request.m4a', type: 'audio/m4a' } as any);
-    form.append('history', JSON.stringify(input.history.slice(-MAX_HISTORY)));
-    if (input.pending) form.append('pending', JSON.stringify(input.pending));
-    if (input.page) form.append('page', input.page);
-    form.append('timeZone', deviceTimeZone());
-    const { data } = await api.post<{ data: (AssistantTurn & { heard: string }) | { heard: '' } }>('/assistant/voice', form, {
+    const { data } = await api.post<{ data: { heard: string } }>('/assistant/transcribe', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
+        timeout: 30000,
     });
-    if ('saved' in data.data) announce(data.data.saved);
-    return data.data;
+    return data.data.heard;
+};
+
+/** After a reply that never arrived: whatever it may have saved shows up in every list */
+export const refreshAfterLostReply = () => {
+    emitShiftsChanged();
+    emitJobsChanged();
+    emitTimesheetChanged();
+    requestReminderSync();
 };
 
 /** A conversation line as the account keeps it (Remember assistant chats) */
